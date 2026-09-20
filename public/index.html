@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chatroom</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface-1: #1a1a19;
+        --plane: #0d0d0d;
+        --text-primary: #ffffff;
+        --text-secondary: #c3c2b7;
+        --text-muted: #898781;
+        --hairline: rgba(255, 255, 255, 0.1);
+        --rule: #2c2c2a;
+        --accent: #3987e5;
+        --good: #0ca30c;
+        --critical: #d03b3b;
+        --warning: #fab219;
+        --radius: 10px;
+        --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        font-family: var(--font);
+        background: var(--plane);
+        color: var(--text-primary);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      button {
+        font: inherit;
+        cursor: pointer;
+        border-radius: 8px;
+        border: 1px solid var(--hairline);
+        background: #232321;
+        color: var(--text-primary);
+        padding: 8px 14px;
+      }
+      button:hover {
+        background: #2c2c2a;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #fff;
+        font-weight: 600;
+      }
+      button.primary:hover {
+        filter: brightness(1.1);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      input,
+      select,
+      textarea {
+        font: inherit;
+        background: #121211;
+        color: var(--text-primary);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 9px 12px;
+        width: 100%;
+      }
+      input:focus,
+      textarea:focus,
+      select:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+      }
+
+      /* ---------- Auth gate ---------- */
+      #gate {
+        display: grid;
+        place-items: center;
+        height: 100%;
+        padding: 24px;
+      }
+      .card {
+        background: var(--surface-1);
+        border: 1px solid var(--hairline);
+        border-radius: 14px;
+        padding: 28px;
+        width: min(380px, 100%);
+      }
+      .card h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+      }
+      .card p.sub {
+        margin: 0 0 20px;
+        color: var(--text-secondary);
+        font-size: 13px;
+      }
+      .field {
+        margin-bottom: 12px;
+      }
+      .field label {
+        display: block;
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 5px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      .row > * {
+        flex: 1;
+      }
+
+      /* ---------- App shell ---------- */
+      #app {
+        display: none;
+        grid-template-columns: 240px 1fr;
+        height: 100%;
+      }
+      #app.live {
+        display: grid;
+      }
+
+      aside {
+        background: var(--surface-1);
+        border-right: 1px solid var(--hairline);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .aside-head {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--hairline);
+      }
+      .aside-head .me {
+        font-weight: 600;
+      }
+      .aside-head .role {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+      .rooms {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+        min-height: 0;
+      }
+      .room-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        padding: 8px 10px;
+        border-radius: 8px;
+        color: var(--text-secondary);
+      }
+      .room-item:hover {
+        background: #232321;
+      }
+      .room-item.active {
+        background: #232321;
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      .room-item .badge {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .room-item .unread {
+        background: var(--accent);
+        color: #fff;
+        border-radius: 999px;
+        padding: 1px 7px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .aside-foot {
+        padding: 10px;
+        border-top: 1px solid var(--hairline);
+        display: grid;
+        gap: 8px;
+      }
+
+      main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+      }
+      header.room-head {
+        padding: 12px 20px;
+        border-bottom: 1px solid var(--hairline);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      header.room-head h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+      header.room-head .meta {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      #log {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 20px;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .msg {
+        padding: 5px 10px;
+        border-radius: 8px;
+        position: relative;
+      }
+      .msg:hover {
+        background: #16161500;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .msg.mentions-me {
+        background: rgba(57, 135, 229, 0.12);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .msg .who {
+        font-weight: 600;
+        margin-right: 8px;
+      }
+      .msg .at {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .msg .tag {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-left: 6px;
+      }
+      .msg .body {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .msg.deleted .body {
+        color: var(--text-muted);
+        font-style: italic;
+      }
+      .mention {
+        background: rgba(57, 135, 229, 0.22);
+        color: #cde2fb;
+        border-radius: 4px;
+        padding: 0 3px;
+        font-weight: 600;
+      }
+      .msg .actions {
+        position: absolute;
+        right: 8px;
+        top: 4px;
+        display: none;
+        gap: 4px;
+      }
+      .msg:hover .actions {
+        display: flex;
+      }
+      .msg .actions button {
+        padding: 2px 8px;
+        font-size: 11px;
+      }
+      .day-rule {
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 11px;
+        margin: 10px 0;
+        border-top: 1px solid var(--rule);
+        line-height: 0;
+      }
+      .day-rule span {
+        background: var(--plane);
+        padding: 0 10px;
+      }
+
+      .composer {
+        border-top: 1px solid var(--hairline);
+        padding: 12px 20px 16px;
+      }
+      .composer .row {
+        align-items: flex-end;
+      }
+      .composer textarea {
+        resize: none;
+        min-height: 42px;
+        max-height: 140px;
+      }
+      .composer .send {
+        flex: 0 0 auto;
+      }
+      #typing {
+        height: 16px;
+        font-size: 11px;
+        color: var(--text-muted);
+        padding: 0 20px;
+      }
+
+      .toast {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        display: grid;
+        gap: 8px;
+        z-index: 20;
+        max-width: 340px;
+      }
+      .toast div {
+        background: var(--surface-1);
+        border: 1px solid var(--hairline);
+        border-left: 3px solid var(--accent);
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 13px;
+      }
+      .toast div.err {
+        border-left-color: var(--critical);
+      }
+      .toast div.warn {
+        border-left-color: var(--warning);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--text-secondary);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--text-muted);
+      }
+      .dot.on {
+        background: var(--good);
+      }
+      .dot.off {
+        background: var(--critical);
+      }
+      .empty {
+        color: var(--text-muted);
+        text-align: center;
+        padding: 40px 0;
+      }
+      .center {
+        display: grid;
+        place-items: center;
+        flex: 1;
+        color: var(--text-muted);
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Auth gate -->
+    <section id="gate">
+      <div class="card">
+        <h1>Chatroom</h1>
+        <p class="sub">Sign in, or register a new account.</p>
+        <div class="field">
+          <label for="u">Username</label>
+          <input id="u" autocomplete="username" placeholder="ada" />
+        </div>
+        <div class="field">
+          <label for="p">Password</label>
+          <input id="p" type="password" autocomplete="current-password" placeholder="••••••••" />
+        </div>
+        <div class="row" style="margin-top: 16px">
+          <button class="primary" id="login">Sign in</button>
+          <button id="register">Register</button>
+        </div>
+        <p class="sub" id="gate-msg" style="margin: 14px 0 0; min-height: 18px"></p>
+      </div>
+    </section>
+
+    <!-- App -->
+    <div id="app">
+      <aside>
+        <div class="aside-head">
+          <div class="me" id="me-name">—</div>
+          <div class="role"><span class="status"><span class="dot" id="conn-dot"></span><span id="conn-text">connecting</span></span></div>
+        </div>
+        <div class="rooms" id="room-list"></div>
+        <div class="aside-foot">
+          <button id="new-room">+ New room</button>
+          <button id="show-mentions">@ My mentions</button>
+          <button id="logout">Sign out</button>
+        </div>
+      </aside>
+
+      <main>
+        <header class="room-head">
+          <div>
+            <h2 id="room-title">Pick a room</h2>
+            <div class="meta" id="room-meta"></div>
+          </div>
+          <button id="load-older" style="display: none">Load older</button>
+        </header>
+
+        <div id="log"><div class="center">Select a room from the left.</div></div>
+        <div id="typing"></div>
+
+        <div class="composer">
+          <div class="row">
+            <textarea id="input" rows="1" placeholder="Message — @name to mention, Enter to send" disabled></textarea>
+            <button class="primary send" id="send" disabled>Send</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+
+      /* ------------------------------------------------------------------ */
+      /* State                                                               */
+      /* ------------------------------------------------------------------ */
+      const state = {
+        token: localStorage.getItem('chat.token'),
+        me: null,
+        ws: null,
+        rooms: new Map(), // roomId -> room summary
+        activeRoomId: null,
+        messages: new Map(), // roomId -> array (oldest first)
+        cursors: new Map(), // roomId -> { hasMore, nextCursor }
+        unread: new Map(), // roomId -> count
+        typing: new Map(), // roomId -> Map(userId -> {username, expires})
+        pending: new Map(), // requestId -> {resolve, reject}
+        seq: 0,
+        retry: 0,
+      };
+
+      /* ------------------------------------------------------------------ */
+      /* Utilities                                                           */
+      /* ------------------------------------------------------------------ */
+      function toast(message, kind = '') {
+        const el = document.createElement('div');
+        if (kind) el.className = kind;
+        el.textContent = message;
+        $('toast').append(el);
+        setTimeout(() => el.remove(), 5000);
+      }
+
+      const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+      const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+            ...(options.headers ?? {}),
+          },
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error?.message ?? `HTTP ${res.status}`);
+        return payload;
+      }
+
+      /** Sends a frame and resolves with the matching ack (or rejects on error). */
+      function call(type, data) {
+        return new Promise((resolve, reject) => {
+          if (state.ws?.readyState !== WebSocket.OPEN) {
+            reject(new Error('Not connected'));
+            return;
+          }
+          const id = `r${++state.seq}`;
+          state.pending.set(id, { resolve, reject });
+          state.ws.send(JSON.stringify({ id, type, ...(data ? { data } : {}) }));
+
+          setTimeout(() => {
+            if (state.pending.delete(id)) reject(new Error('Request timed out'));
+          }, 10000);
+        });
+      }
+
+      /* ------------------------------------------------------------------ */
+      /* Rendering                                                           */
+      /* ------------------------------------------------------------------ */
+
+      /**
+       * Builds the message body as DOM nodes rather than innerHTML: message
+       * text is untrusted, and @mention highlighting must not become an
+       * injection point.
+       */
+      function renderBody(text) {
+        const frag = document.createDocumentFragment();
+        const pattern = /(^|[^A-Za-z0-9_@.-])@([A-Za-z0-9_.-]{2,32})/g;
+        let last = 0;
+        let match;
+
+        while ((match = pattern.exec(text)) !== null) {
+          const start = match.index + match[1].length;
+          if (start > last) frag.append(document.createTextNode(text.slice(last, start)));
+
+          const span = document.createElement('span');
+          span.className = 'mention';
+          span.textContent = `@${match[2]}`;
+          frag.append(span);
+          last = start + match[2].length + 1;
+        }
+        if (last < text.length) frag.append(document.createTextNode(text.slice(last)));
+        return frag;
+      }
+
+      function messageNode(message) {
+        const wrap = document.createElement('div');
+        wrap.className = 'msg';
+        wrap.dataset.id = String(message.id);
+
+        const mentionsMe =
+          state.me && message.mentions?.some((n) => n.toLowerCase() === state.me.username.toLowerCase());
+        if (mentionsMe) wrap.classList.add('mentions-me');
+        if (message.deletedAt) wrap.classList.add('deleted');
+
+        const head = document.createElement('div');
+        const who = document.createElement('span');
+        who.className = 'who';
+        who.textContent = message.username;
+        const at = document.createElement('span');
+        at.className = 'at';
+        at.textContent = timeFmt.format(new Date(message.createdAt));
+        head.append(who, at);
+
+        if (message.editedAt && !message.deletedAt) {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.textContent = '(edited)';
+          head.append(tag);
+        }
+
+        const body = document.createElement('div');
+        body.className = 'body';
+        if (message.deletedAt) body.textContent = 'This message was deleted.';
+        else body.append(renderBody(message.body));
+
+        wrap.append(head, body);
+
+        // Author-only controls; the server enforces the same rule.
+        if (!message.deletedAt && state.me && message.userId === state.me.id) {
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+
+          const edit = document.createElement('button');
+          edit.textContent = 'Edit';
+          edit.onclick = () => startEdit(message);
+
+          const del = document.createElement('button');
+          del.textContent = 'Delete';
+          del.onclick = async () => {
+            if (!confirm('Delete this message?')) return;
+            try {
+              await call('message.delete', { messageId: message.id });
+            } catch (err) {
+              toast(err.message, 'err');
+            }
+          };
+
+          actions.append(edit, del);
+          wrap.append(actions);
+        }
+        return wrap;
+      }
+
+      function renderLog() {
+        const log = $('log');
+        const roomId = state.activeRoomId;
+        log.replaceChildren();
+
+        if (!roomId) {
+          const empty = document.createElement('div');
+          empty.className = 'center';
+          empty.textContent = 'Select a room from the left.';
+          log.append(empty);
+          return;
+        }
+
+        const list = state.messages.get(roomId) ?? [];
+        if (list.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = 'No messages yet. Say hello.';
+          log.append(empty);
+          return;
+        }
+
+        let lastDay = '';
+        for (const message of list) {
+          const day = dayFmt.format(new Date(message.createdAt));
+          if (day !== lastDay) {
+            const rule = document.createElement('div');
+            rule.className = 'day-rule';
+            const label = document.createElement('span');
+            label.textContent = day;
+            rule.append(label);
+            log.append(rule);
+            lastDay = day;
+          }
+          log.append(messageNode(message));
+        }
+
+        const cursor = state.cursors.get(roomId);
+        $('load-older').style.display = cursor?.hasMore ? 'block' : 'none';
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function renderRooms() {
+        const list = $('room-list');
+        list.replaceChildren();
+
+        const rooms = [...state.rooms.values()].sort((a, b) => a.name.localeCompare(b.name));
+        for (const room of rooms) {
+          const button = document.createElement('button');
+          button.className = 'room-item' + (room.id === state.activeRoomId ? ' active' : '');
+
+          const label = document.createElement('span');
+          label.textContent = (room.visibility === 'private' ? '🔒 ' : '# ') + room.name;
+          button.append(label);
+
+          const unread = state.unread.get(room.id) ?? 0;
+          const badge = document.createElement('span');
+          if (unread > 0 && room.id !== state.activeRoomId) {
+            badge.className = 'unread';
+            badge.textContent = String(unread);
+          } else {
+            badge.className = 'badge';
+            badge.textContent = room.myRole ? String(room.memberCount ?? '') : 'join';
+          }
+          button.append(badge);
+
+          button.onclick = () => openRoom(room.id);
+          list.append(button);
+        }
+      }
+
+      function renderTyping() {
+        const roomId = state.activeRoomId;
+        const now = Date.now();
+        const entries = [...(state.typing.get(roomId)?.values() ?? [])].filter((t) => t.expires > now);
+
+        $('typing').textContent =
+          entries.length === 0
+            ? ''
+            : entries.length === 1
+              ? `${entries[0].username} is typing…`
+              : `${entries.length} people are typing…`;
+      }
+      setInterval(renderTyping, 1500);
+
+      /* ------------------------------------------------------------------ */
+      /* Actions                                                             */
+      /* ------------------------------------------------------------------ */
+      async function openRoom(roomId) {
+        try {
+          const ack = await call('room.join', { roomId });
+          const room = ack.room;
+
+          state.rooms.set(room.id, {
+            ...(state.rooms.get(room.id) ?? {}),
+            ...room,
+            myRole: ack.membership.role,
+            memberCount: ack.members.length,
+          });
+          state.messages.set(room.id, ack.history.messages);
+          state.cursors.set(room.id, {
+            hasMore: ack.history.hasMore,
+            nextCursor: ack.history.nextCursor,
+          });
+          state.activeRoomId = room.id;
+          state.unread.set(room.id, 0);
+
+          $('room-title').textContent = (room.visibility === 'private' ? '🔒 ' : '# ') + room.name;
+          $('room-meta').textContent = `${ack.members.length} member(s) · ${ack.online.length} online`;
+          $('input').disabled = false;
+          $('send').disabled = false;
+
+          renderRooms();
+          renderLog();
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      }
+
+      async function loadOlder() {
+        const roomId = state.activeRoomId;
+        const cursor = state.cursors.get(roomId);
+        if (!cursor?.hasMore) return;
+
+        try {
+          const page = await call('history.fetch', { roomId, before: cursor.nextCursor, limit: 50 });
+          const existing = state.messages.get(roomId) ?? [];
+
+          state.messages.set(roomId, [...page.messages, ...existing]);
+          state.cursors.set(roomId, { hasMore: page.hasMore, nextCursor: page.nextCursor });
+
+          // Keep the reading position instead of snapping to the bottom.
+          const log = $('log');
+          const before = log.scrollHeight;
+          renderLog();
+          log.scrollTop = log.scrollHeight - before;
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      }
+
+      function startEdit(message) {
+        const next = prompt('Edit message', message.body);
+        if (next === null || next.trim() === '' || next === message.body) return;
+
+        call('message.edit', { messageId: message.id, body: next }).catch((err) =>
+          toast(err.message, 'err'),
+        );
+      }
+
+      async function send() {
+        const input = $('input');
+        const body = input.value.trim();
+        if (!body || !state.activeRoomId) return;
+
+        input.value = '';
+        input.style.height = 'auto';
+
+        try {
+          await call('message.send', { roomId: state.activeRoomId, body });
+        } catch (err) {
+          // Put the text back so a rate-limited message is not lost.
+          input.value = body;
+          toast(err.message, 'err');
+        }
+      }
+
+      function upsertMessage(message) {
+        const list = state.messages.get(message.roomId);
+        if (!list) return false;
+
+        const index = list.findIndex((m) => m.id === message.id);
+        if (index === -1) list.push(message);
+        else list[index] = message;
+        return true;
+      }
+
+      /* ------------------------------------------------------------------ */
+      /* WebSocket                                                           */
+      /* ------------------------------------------------------------------ */
+      function setConnected(on, text) {
+        $('conn-dot').className = 'dot ' + (on ? 'on' : 'off');
+        $('conn-text').textContent = text;
+      }
+
+      function connect() {
+        const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+        // Sent as a subprotocol rather than a query string so the token does
+        // not end up in proxy or server access logs.
+        const ws = new WebSocket(`${scheme}://${location.host}/ws`, ['bearer', state.token]);
+        state.ws = ws;
+
+        ws.onopen = () => {
+          state.retry = 0;
+          setConnected(true, 'connected');
+        };
+
+        ws.onclose = (event) => {
+          setConnected(false, 'disconnected');
+          $('input').disabled = true;
+          $('send').disabled = true;
+
+          // 4001 unauthorized / 4003 banned are terminal: the stored token
+          // will never work again, so stop reconnecting and clear it.
+          if (event.code === 4001 || event.code === 4003) {
+            toast(event.reason || 'Session ended', 'err');
+            signOut();
+            return;
+          }
+
+          // Exponential backoff, capped, so a server restart does not turn
+          // into a reconnect storm.
+          const delay = Math.min(1000 * 2 ** state.retry++, 15000);
+          setConnected(false, `reconnecting in ${Math.round(delay / 1000)}s`);
+          setTimeout(connect, delay);
+        };
+
+        ws.onmessage = (event) => {
+          let frame;
+          try {
+            frame = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          handleFrame(frame);
+        };
+      }
+
+      function handleFrame(frame) {
+        // Resolve a pending request first, whatever the frame type.
+        if (frame.id && state.pending.has(frame.id)) {
+          const { resolve, reject } = state.pending.get(frame.id);
+          state.pending.delete(frame.id);
+          if (frame.type === 'error') reject(new Error(frame.message));
+          else resolve(frame.data ?? {});
+          return;
+        }
+
+        switch (frame.type) {
+          case 'ready': {
+            state.me = frame.data.user;
+            $('me-name').textContent = frame.data.user.username;
+            for (const room of frame.data.rooms) state.rooms.set(room.id, room);
+            renderRooms();
+
+            // Land somewhere useful on first connect.
+            if (!state.activeRoomId) {
+              const first = [...state.rooms.values()].find((r) => r.myRole) ?? [...state.rooms.values()][0];
+              if (first) openRoom(first.id);
+            }
+            break;
+          }
+
+          case 'message.new': {
+            const message = frame.data.message;
+            // upsert returns false for a room whose history is not loaded
+            // yet; the unread badge must still count it.
+            upsertMessage(message);
+
+            if (message.roomId === state.activeRoomId) renderLog();
+            else {
+              state.unread.set(message.roomId, (state.unread.get(message.roomId) ?? 0) + 1);
+              renderRooms();
+            }
+            break;
+          }
+
+          case 'message.edited': {
+            if (upsertMessage(frame.data.message) && frame.data.message.roomId === state.activeRoomId) {
+              renderLog();
+            }
+            break;
+          }
+
+          case 'message.deleted': {
+            const list = state.messages.get(frame.data.roomId);
+            const target = list?.find((m) => m.id === frame.data.messageId);
+            if (target) {
+              target.deletedAt = frame.data.deletedAt;
+              target.body = '';
+              if (frame.data.roomId === state.activeRoomId) renderLog();
+            }
+            break;
+          }
+
+          case 'mention': {
+            const message = frame.data.message;
+            if (message.userId !== state.me?.id) {
+              toast(`@${message.username} mentioned you: ${message.body.slice(0, 80)}`, 'warn');
+            }
+            break;
+          }
+
+          case 'typing': {
+            if (!state.typing.has(frame.data.roomId)) state.typing.set(frame.data.roomId, new Map());
+            const room = state.typing.get(frame.data.roomId);
+
+            if (frame.data.isTyping) {
+              room.set(frame.data.userId, { username: frame.data.username, expires: Date.now() + 4000 });
+            } else {
+              room.delete(frame.data.userId);
+            }
+            renderTyping();
+            break;
+          }
+
+          case 'room.presence': {
+            if (frame.data.roomId === state.activeRoomId) {
+              toast(`${frame.data.username} ${frame.data.event} the room`);
+            }
+            break;
+          }
+
+          case 'room.created': {
+            state.rooms.set(frame.data.room.id, { ...frame.data.room, memberCount: 1, myRole: null });
+            renderRooms();
+            break;
+          }
+
+          case 'system': {
+            toast(frame.data.message, 'warn');
+            if (frame.data.event === 'room_deleted' || frame.data.event === 'room_archived') {
+              state.rooms.delete(frame.data.roomId);
+              if (state.activeRoomId === frame.data.roomId) {
+                state.activeRoomId = null;
+                renderLog();
+              }
+              renderRooms();
+            }
+            break;
+          }
+
+          case 'error':
+            toast(frame.message, 'err');
+            break;
+        }
+      }
+
+      /* ------------------------------------------------------------------ */
+      /* Auth + wiring                                                       */
+      /* ------------------------------------------------------------------ */
+      function enterApp() {
+        $('gate').style.display = 'none';
+        $('app').classList.add('live');
+        connect();
+      }
+
+      function signOut() {
+        localStorage.removeItem('chat.token');
+        location.reload();
+      }
+
+      async function authenticate(path) {
+        const username = $('u').value.trim();
+        const password = $('p').value;
+        $('gate-msg').textContent = '';
+
+        try {
+          const result = await api(`/api/auth/${path}`, {
+            method: 'POST',
+            body: JSON.stringify({ username, password }),
+          });
+          state.token = result.token;
+          localStorage.setItem('chat.token', result.token);
+          enterApp();
+        } catch (err) {
+          $('gate-msg').textContent = err.message;
+        }
+      }
+
+      $('login').onclick = () => authenticate('login');
+      $('register').onclick = () => authenticate('register');
+      $('p').onkeydown = (e) => {
+        if (e.key === 'Enter') authenticate('login');
+      };
+
+      $('logout').onclick = signOut;
+      $('send').onclick = send;
+      $('load-older').onclick = loadOlder;
+
+      $('new-room').onclick = async () => {
+        const name = prompt('Room name');
+        if (!name) return;
+        const visibility = confirm('Make this room private? (OK = private)') ? 'private' : 'public';
+
+        try {
+          const ack = await call('room.create', { name, visibility });
+          state.rooms.set(ack.room.id, { ...ack.room, memberCount: 1, myRole: 'owner' });
+          renderRooms();
+          openRoom(ack.room.id);
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+
+      $('show-mentions').onclick = async () => {
+        try {
+          const page = await call('mentions.fetch', { limit: 20 });
+          if (page.messages.length === 0) {
+            toast('No mentions yet.');
+            return;
+          }
+          for (const message of page.messages.slice(-5).reverse()) {
+            toast(`#${state.rooms.get(message.roomId)?.name ?? message.roomId} — ${message.username}: ${message.body.slice(0, 60)}`);
+          }
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+
+      // Enter sends; Shift+Enter inserts a newline.
+      let typingSentAt = 0;
+      $('input').onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          send();
+          return;
+        }
+        // Throttle: one typing frame per 2s, not one per keystroke.
+        const now = Date.now();
+        if (state.activeRoomId && now - typingSentAt > 2000) {
+          typingSentAt = now;
+          call('typing', { roomId: state.activeRoomId, isTyping: true }).catch(() => {});
+        }
+      };
+      $('input').oninput = (e) => {
+        e.target.style.height = 'auto';
+        e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+      };
+
+      if (state.token) enterApp();
+    </script>
+  </body>
+</html>

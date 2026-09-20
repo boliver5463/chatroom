@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chatroom · Admin</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface-1: #1a1a19;
+        --plane: #0d0d0d;
+        --text-primary: #ffffff;
+        --text-secondary: #c3c2b7;
+        --text-muted: #898781;
+        --hairline: rgba(255, 255, 255, 0.1);
+        --rule: #2c2c2a;
+        --accent: #3987e5;
+        --good: #0ca30c;
+        --warning: #fab219;
+        --critical: #d03b3b;
+        --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--plane);
+        color: var(--text-primary);
+        font-family: var(--font);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 28px 24px 64px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 32px 0 12px;
+        color: var(--text-secondary);
+        font-weight: 600;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 8px;
+      }
+      .sub {
+        color: var(--text-muted);
+        font-size: 12px;
+      }
+
+      button {
+        font: inherit;
+        cursor: pointer;
+        border-radius: 8px;
+        border: 1px solid var(--hairline);
+        background: #232321;
+        color: var(--text-primary);
+        padding: 6px 12px;
+        font-size: 13px;
+      }
+      button:hover {
+        background: #2c2c2a;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: transparent;
+        font-weight: 600;
+      }
+      button.danger {
+        border-color: rgba(208, 59, 59, 0.5);
+        color: #ffb4b4;
+      }
+      input {
+        font: inherit;
+        background: #121211;
+        color: var(--text-primary);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 8px 12px;
+      }
+
+      /* ---- KPI row: plain stat tiles, no plot, so no hover layer ---- */
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .kpi {
+        background: var(--surface-1);
+        border: 1px solid var(--hairline);
+        border-radius: 12px;
+        padding: 16px 18px;
+      }
+      .kpi .label {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .kpi .value {
+        font-size: 30px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+      }
+      .kpi .note {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--surface-1);
+        border: 1px solid var(--hairline);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--rule);
+        vertical-align: middle;
+      }
+      th {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+        font-weight: 600;
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      tbody tr:hover {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      /* Columns that must align vertically get tabular figures. */
+      td.num,
+      th.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      td.actions {
+        text-align: right;
+        white-space: nowrap;
+      }
+      td.actions button + button {
+        margin-left: 6px;
+      }
+
+      /* Status is never carried by color alone: icon + label, always. */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .badge .mark {
+        font-size: 11px;
+      }
+      .badge.good .mark {
+        color: var(--good);
+      }
+      .badge.critical .mark {
+        color: var(--critical);
+      }
+      .badge.warning .mark {
+        color: var(--warning);
+      }
+      .badge.muted {
+        color: var(--text-muted);
+      }
+
+      .gate {
+        max-width: 360px;
+        margin: 80px auto;
+        background: var(--surface-1);
+        border: 1px solid var(--hairline);
+        border-radius: 14px;
+        padding: 26px;
+        display: grid;
+        gap: 10px;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .msg {
+        color: var(--critical);
+        font-size: 13px;
+        min-height: 18px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Sign-in gate -->
+    <div class="gate" id="gate">
+      <h1>Admin console</h1>
+      <p class="sub" style="margin: 0 0 8px">Administrator credentials required.</p>
+      <input id="u" placeholder="Username" autocomplete="username" />
+      <input id="p" type="password" placeholder="Password" autocomplete="current-password" />
+      <button class="primary" id="signin">Sign in</button>
+      <div class="msg" id="gate-msg"></div>
+    </div>
+
+    <div class="wrap hidden" id="app">
+      <div class="topbar">
+        <div>
+          <h1>Admin console</h1>
+          <div class="sub" id="who"></div>
+        </div>
+        <div>
+          <button id="refresh">Refresh</button>
+          <button id="signout">Sign out</button>
+        </div>
+      </div>
+
+      <div class="kpis" id="kpis"></div>
+
+      <h2>Users</h2>
+      <div class="toolbar">
+        <input id="search" placeholder="Search username" style="max-width: 240px" />
+        <button id="do-search">Search</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th class="num">ID</th>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th class="num">Sockets</th>
+            <th class="actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users"></tbody>
+      </table>
+
+      <h2>Rooms</h2>
+      <table>
+        <thead>
+          <tr>
+            <th class="num">ID</th>
+            <th>Name</th>
+            <th>Visibility</th>
+            <th>State</th>
+            <th class="num">Members</th>
+            <th class="num">Messages</th>
+            <th class="num">Online</th>
+            <th class="actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rooms"></tbody>
+      </table>
+    </div>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+      let token = localStorage.getItem('chat.token');
+      let me = null;
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error?.message ?? `HTTP ${res.status}`);
+        return payload;
+      }
+
+      function badge(kind, mark, label) {
+        const span = document.createElement('span');
+        span.className = `badge ${kind}`;
+        const icon = document.createElement('span');
+        icon.className = 'mark';
+        icon.textContent = mark;
+        const text = document.createElement('span');
+        text.textContent = label;
+        span.append(icon, text);
+        return span;
+      }
+
+      function cell(row, text, className) {
+        const td = document.createElement('td');
+        if (className) td.className = className;
+        if (text instanceof Node) td.append(text);
+        else td.textContent = String(text);
+        row.append(td);
+        return td;
+      }
+
+      function actionButton(label, handler, className = '') {
+        const button = document.createElement('button');
+        button.textContent = label;
+        if (className) button.className = className;
+        button.onclick = async () => {
+          button.disabled = true;
+          try {
+            await handler();
+            await refresh();
+          } catch (err) {
+            alert(err.message);
+            button.disabled = false;
+          }
+        };
+        return button;
+      }
+
+      function formatUptime(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        return h > 0 ? `${h}h ${m}m` : `${m}m ${seconds % 60}s`;
+      }
+
+      function renderKpis(stats) {
+        const tiles = [
+          { label: 'Live sockets', value: stats.live.connections, note: `${stats.live.users} distinct users` },
+          { label: 'Rooms with traffic', value: stats.live.rooms, note: `${stats.rooms} rooms total` },
+          { label: 'Registered users', value: stats.users, note: 'all time' },
+          { label: 'Uptime', value: formatUptime(stats.uptimeSeconds), note: 'since last restart' },
+        ];
+
+        $('kpis').replaceChildren(
+          ...tiles.map((tile) => {
+            const box = document.createElement('div');
+            box.className = 'kpi';
+
+            const label = document.createElement('div');
+            label.className = 'label';
+            label.textContent = tile.label;
+
+            const value = document.createElement('div');
+            value.className = 'value';
+            value.textContent = String(tile.value);
+
+            const note = document.createElement('div');
+            note.className = 'note';
+            note.textContent = tile.note;
+
+            box.append(label, value, note);
+            return box;
+          }),
+        );
+      }
+
+      function renderUsers(users) {
+        const body = $('users');
+        body.replaceChildren();
+
+        for (const user of users) {
+          const row = document.createElement('tr');
+          cell(row, user.id, 'num');
+          cell(row, user.username);
+          cell(
+            row,
+            user.role === 'admin'
+              ? badge('warning', '★', 'admin')
+              : badge('muted', '·', 'user'),
+          );
+          cell(
+            row,
+            user.isBanned ? badge('critical', '⊘', 'banned') : badge('good', '✓', 'active'),
+          );
+          cell(row, user.connections, 'num');
+
+          const actions = cell(row, '', 'actions');
+          const isSelf = me && user.id === me.id;
+
+          actions.append(
+            actionButton(
+              user.isBanned ? 'Unban' : 'Ban',
+              () =>
+                api(`/api/admin/users/${user.id}/ban`, {
+                  method: 'POST',
+                  body: JSON.stringify({ banned: !user.isBanned }),
+                }),
+              user.isBanned ? '' : 'danger',
+            ),
+            actionButton(user.role === 'admin' ? 'Demote' : 'Promote', () =>
+              api(`/api/admin/users/${user.id}/role`, {
+                method: 'POST',
+                body: JSON.stringify({ role: user.role === 'admin' ? 'user' : 'admin' }),
+              }),
+            ),
+            actionButton('Disconnect', () =>
+              api(`/api/admin/users/${user.id}/disconnect`, { method: 'POST' }),
+            ),
+          );
+
+          // The server rejects self-ban/self-demote too; disabling here just
+          // avoids offering a button that cannot work.
+          if (isSelf) {
+            for (const button of actions.querySelectorAll('button')) {
+              if (button.textContent !== 'Disconnect') button.disabled = true;
+            }
+          }
+
+          body.append(row);
+        }
+      }
+
+      function renderRooms(rooms) {
+        const body = $('rooms');
+        body.replaceChildren();
+
+        for (const room of rooms) {
+          const archived = room.archivedAt !== null;
+          const row = document.createElement('tr');
+
+          cell(row, room.id, 'num');
+          cell(row, room.name);
+          cell(
+            row,
+            room.visibility === 'private'
+              ? badge('muted', '🔒', 'private')
+              : badge('muted', '#', 'public'),
+          );
+          cell(
+            row,
+            archived ? badge('warning', '▣', 'archived') : badge('good', '✓', 'active'),
+          );
+          cell(row, room.memberCount, 'num');
+          cell(row, room.messageCount, 'num');
+          cell(row, room.online, 'num');
+
+          const actions = cell(row, '', 'actions');
+          actions.append(
+            actionButton(archived ? 'Unarchive' : 'Archive', () =>
+              api(`/api/admin/rooms/${room.id}/archive`, {
+                method: 'POST',
+                body: JSON.stringify({ archived: !archived }),
+              }),
+            ),
+            actionButton(
+              'Delete',
+              () => {
+                if (!confirm(`Permanently delete "${room.name}" and all of its messages?`)) {
+                  throw new Error('Cancelled');
+                }
+                return api(`/api/admin/rooms/${room.id}`, { method: 'DELETE' });
+              },
+              'danger',
+            ),
+          );
+
+          body.append(row);
+        }
+      }
+
+      async function refresh() {
+        const search = $('search').value.trim();
+        const [stats, users, rooms] = await Promise.all([
+          api('/api/admin/stats'),
+          api(`/api/admin/users?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+          api('/api/admin/rooms'),
+        ]);
+
+        renderKpis(stats);
+        renderUsers(users.users);
+        renderRooms(rooms.rooms);
+      }
+
+      async function enter() {
+        const profile = await api('/api/auth/me');
+        if (profile.user.role !== 'admin') throw new Error('This account is not an administrator');
+
+        me = profile.user;
+        $('who').textContent = `Signed in as ${me.username}`;
+        $('gate').classList.add('hidden');
+        $('app').classList.remove('hidden');
+        await refresh();
+      }
+
+      $('signin').onclick = async () => {
+        $('gate-msg').textContent = '';
+        try {
+          const result = await api('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username: $('u').value.trim(), password: $('p').value }),
+          });
+          token = result.token;
+          localStorage.setItem('chat.token', token);
+          await enter();
+        } catch (err) {
+          $('gate-msg').textContent = err.message;
+        }
+      };
+      $('p').onkeydown = (e) => {
+        if (e.key === 'Enter') $('signin').click();
+      };
+
+      $('refresh').onclick = () => refresh().catch((err) => alert(err.message));
+      $('do-search').onclick = () => refresh().catch((err) => alert(err.message));
+      $('search').onkeydown = (e) => {
+        if (e.key === 'Enter') $('do-search').click();
+      };
+      $('signout').onclick = () => {
+        localStorage.removeItem('chat.token');
+        location.reload();
+      };
+
+      // Keep live counters fresh without hammering the endpoint.
+      setInterval(() => {
+        if (!$('app').classList.contains('hidden')) refresh().catch(() => {});
+      }, 10000);
+
+      if (token) {
+        enter().catch(() => {
+          // Stale or non-admin token: fall back to the sign-in gate.
+          $('gate').classList.remove('hidden');
+        });
+      }
+    </script>
+  </body>
+</html>

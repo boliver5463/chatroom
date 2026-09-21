@@ -6,6 +6,7 @@ import type { AppContext } from '../context.js';
 import { errorHandler, notFoundHandler } from './middleware.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
+import { giphyRoutes } from './routes/giphy.js';
 import { mentionRoutes, messageRoutes, roomRoutes } from './routes/rooms.js';
 
 // Works from both src/ (tsx) and dist/ (compiled): both are one directory deep.
@@ -24,8 +25,29 @@ export function createApp(ctx: AppContext): Express {
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Also keeps room URLs out of Giphy's logs when the browser loads a GIF.
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
+
+    // Defence in depth behind the attachment allowlist: even if a bad URL were
+    // ever stored, the browser would refuse to load it. 'unsafe-inline' is
+    // needed because the two pages carry their script and style inline; there
+    // are no inline event-handler attributes, so 'unsafe-hashes' is not.
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        // data: covers nothing today but keeps favicons/inline icons working.
+        "img-src 'self' data: https://media.giphy.com https://media0.giphy.com https://media1.giphy.com https://media2.giphy.com https://media3.giphy.com https://media4.giphy.com https://i.giphy.com",
+        // 'self' covers the same-origin WebSocket in CSP3 browsers.
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+      ].join('; '),
+    );
     // Only meaningful once TLS terminates in front of us. Scoped to this exact
     // host on purpose — no includeSubDomains, so deploying the chat subdomain
     // can never force HTTPS onto the parent domain.
@@ -44,6 +66,7 @@ export function createApp(ctx: AppContext): Express {
   app.use('/api/messages', messageRoutes(ctx));
   app.use('/api/mentions', mentionRoutes(ctx));
   app.use('/api/admin', adminRoutes(ctx));
+  app.use('/api/giphy', giphyRoutes(ctx));
 
   // Canonical page URLs. The redirects are registered before express.static so
   // the underlying .html paths never resolve directly and each page has exactly

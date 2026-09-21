@@ -84,6 +84,27 @@ export const config = {
     refillPerSecond: num('AUTH_RATE_LIMIT_REFILL_PER_SEC', 1 / 6),
   },
 
+  /**
+   * Giphy integration. The key stays server-side and is never sent to the
+   * browser — public/index.html is served to anyone, and a leaked key is
+   * someone else spending your quota. With no key set, the endpoints return
+   * 503 and the client hides its GIF button.
+   */
+  giphy: {
+    apiKey: str('GIPHY_API_KEY', ''),
+    /** Giphy content rating ceiling: g, pg, pg-13, or r. */
+    rating: str('GIPHY_RATING', 'pg-13'),
+    resultLimit: num('GIPHY_RESULT_LIMIT', 24),
+    /** Upstream is a third party; never let a hung request hold a socket. */
+    timeoutMs: num('GIPHY_TIMEOUT_MS', 6000),
+  },
+
+  /** Per-user bucket for GIF search, which costs an upstream API call. */
+  giphyRateLimit: {
+    burst: num('GIPHY_RATE_LIMIT_BURST', 15),
+    refillPerSecond: num('GIPHY_RATE_LIMIT_REFILL_PER_SEC', 1),
+  },
+
   /** Cheaper bucket applied per socket to every inbound frame. */
   connectionRateLimit: {
     burst: num('CONNECTION_OPS_BURST', 30),

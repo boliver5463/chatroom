@@ -55,6 +55,10 @@ npm run smoke     # end-to-end checks against a running server
   `@all` / `@here` / `@channel` broadcast to the room
 - Message editing (author only, with a stored revision history) and deletion
   (author or moderator, as a tombstone)
+- GIFs from Giphy — searched through a server-side proxy so the API key never
+  reaches the browser, and restricted to Giphy's own CDN hosts at write time.
+  Sent with or without a caption. Requires `GIPHY_API_KEY`; without one the
+  feature disables itself
 - Rate limiting — three token buckets: per-user message sends, per-socket frame
   floods, per-IP credential attempts
 - Admin console — live stats, user search, ban/unban, promote/demote, force
@@ -123,12 +127,20 @@ matching `ack`/`error` so a client can correlate responses over one socket.
 | `room.create` | `{ name, visibility? }` | `{ room }` |
 | `room.join` | `{ roomId }` or `{ slug }` | `{ room, membership, members, online, history }` |
 | `room.leave` | `{ roomId }` | `{ roomId }` |
-| `message.send` | `{ roomId, body }` | `{ message }` |
+| `message.send` | `{ roomId, body?, attachment? }` | `{ message }` |
 | `message.edit` | `{ messageId, body }` | `{ message }` |
 | `message.delete` | `{ messageId }` | `{ messageId }` |
 | `history.fetch` | `{ roomId, before?, after?, limit? }` | `{ messages, hasMore, nextCursor }` |
 | `mentions.fetch` | `{ before?, limit? }` | `{ messages, hasMore, nextCursor }` |
 | `typing` | `{ roomId, isTyping }` | `{ ok }` |
+
+At least one of `body` and `attachment` must be present; both together make the
+body a caption. An `attachment` is
+`{ kind: 'gif', url, width, height, alt? }`, and `url` must be `https:` on a
+Giphy CDN host (`media*.giphy.com` or `i.giphy.com`) — anything else is a
+400 `invalid_request`. Attachments are immutable: `message.edit` rewrites the
+caption only, and deleting a message withholds its attachment along with its
+body.
 
 ### Server → client
 
@@ -178,10 +190,22 @@ All routes except `/health` and `/api/auth/{register,login}` require
 | `POST` | `/api/rooms/:id/members` | Invite — `{ username \| userId, role? }` |
 | `DELETE` | `/api/rooms/:id/members/:userId` | Kick (moderator+) |
 | `GET` | `/api/rooms/:id/messages` | **History** — `?before=&after=&limit=` |
-| `POST` | `/api/rooms/:id/messages` | `{ body }` — fans out to live sockets |
+| `POST` | `/api/rooms/:id/messages` | `{ body?, attachment? }` — fans out to live sockets |
 | `PATCH` | `/api/messages/:id` | `{ body }` — author only |
 | `DELETE` | `/api/messages/:id` | Author or moderator |
 | `GET` | `/api/mentions` | Your mention inbox — `?before=&limit=` |
+
+### GIFs
+
+| Method | Path | |
+| --- | --- | --- |
+| `GET` | `/api/giphy/status` | `{ enabled }` — false when no API key is set |
+| `GET` | `/api/giphy/search?q=` | `{ gifs }`; an empty `q` returns trending |
+
+Results come back as `{ id, url, width, height, previewUrl, title }`, already
+checked against the same host allowlist `message.send` applies — so anything
+the picker shows is guaranteed sendable. Rate limited per user, since each
+search is an upstream API call.
 
 ### Admin (`role: admin`)
 
@@ -232,6 +256,10 @@ Copy `.env.example` to `.env`. Every value has a development default except
 | `RATE_LIMIT_BURST` / `RATE_LIMIT_REFILL_PER_SEC` | `5` / `1` | Message sends, per user |
 | `CONNECTION_OPS_BURST` / `CONNECTION_OPS_REFILL_PER_SEC` | `30` / `10` | Frames, per socket |
 | `AUTH_RATE_LIMIT_BURST` / `AUTH_RATE_LIMIT_REFILL_PER_SEC` | `10` / `0.167` | Login attempts, per IP |
+| `GIPHY_API_KEY` | _empty_ | Enables GIFs. Server-side only; never sent to the browser |
+| `GIPHY_RATING` | `pg-13` | Content ceiling: `g`, `pg`, `pg-13`, `r` |
+| `GIPHY_RESULT_LIMIT` / `GIPHY_TIMEOUT_MS` | `24` / `6000` | Results per search; upstream timeout |
+| `GIPHY_RATE_LIMIT_BURST` / `GIPHY_RATE_LIMIT_REFILL_PER_SEC` | `15` / `1` | GIF searches, per user |
 
 ### Before deploying
 

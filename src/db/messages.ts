@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { Message } from '../types.js';
+import type { AttachmentKind, Message, MessageAttachment } from '../types.js';
 
 interface MessageRow {
   id: number;
@@ -10,6 +10,28 @@ interface MessageRow {
   created_at: number;
   edited_at: number | null;
   deleted_at: number | null;
+  attachment_kind: AttachmentKind | null;
+  attachment_url: string | null;
+  attachment_width: number | null;
+  attachment_height: number | null;
+  attachment_alt: string | null;
+}
+
+/**
+ * Rebuilds the attachment from its columns. All five move together, but a row
+ * written before the attachments migration has them all NULL, so `kind` alone
+ * decides whether there is one.
+ */
+function attachmentOf(row: MessageRow): MessageAttachment | null {
+  if (row.attachment_kind === null || row.attachment_url === null) return null;
+
+  return {
+    kind: row.attachment_kind,
+    url: row.attachment_url,
+    width: row.attachment_width ?? 0,
+    height: row.attachment_height ?? 0,
+    alt: row.attachment_alt ?? '',
+  };
 }
 
 export interface HistoryPage {
@@ -34,13 +56,30 @@ export class MessageRepository {
     username: string;
     body: string;
     mentionUserIds: number[];
+    attachment?: MessageAttachment | null;
   }): Message {
     const now = Date.now();
+    const attachment = input.attachment ?? null;
 
     const tx = this.db.transaction(() => {
       const info = this.db
-        .prepare('INSERT INTO messages (room_id, user_id, body, created_at) VALUES (?, ?, ?, ?)')
-        .run(input.roomId, input.userId, input.body, now);
+        .prepare(
+          `INSERT INTO messages
+             (room_id, user_id, body, created_at,
+              attachment_kind, attachment_url, attachment_width, attachment_height, attachment_alt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          input.roomId,
+          input.userId,
+          input.body,
+          now,
+          attachment?.kind ?? null,
+          attachment?.url ?? null,
+          attachment?.width ?? null,
+          attachment?.height ?? null,
+          attachment?.alt ?? null,
+        );
 
       const messageId = Number(info.lastInsertRowid);
 
@@ -65,6 +104,7 @@ export class MessageRepository {
       editedAt: null,
       deletedAt: null,
       mentions: [],
+      attachment,
     };
   }
 
@@ -219,8 +259,9 @@ export class MessageRepository {
 
   /**
    * Attaches mention usernames to a page of rows with one extra query rather
-   * than one per message, and blanks the body of soft-deleted messages so a
-   * deletion is effective even though the row survives.
+   * than one per message, and blanks the body *and attachment* of soft-deleted
+   * messages so a deletion is effective even though the row survives. Leaving
+   * the attachment in place would mean "delete" still rendered the image.
    */
   private hydrate(rows: MessageRow[]): Message[] {
     if (rows.length === 0) return [];
@@ -252,6 +293,7 @@ export class MessageRepository {
       editedAt: row.edited_at,
       deletedAt: row.deleted_at,
       mentions: byMessage.get(row.id) ?? [],
+      attachment: row.deleted_at === null ? attachmentOf(row) : null,
     }));
   }
 }

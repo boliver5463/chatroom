@@ -468,3 +468,83 @@ describe('admin interface', () => {
     expect(server.ctx.messages.findById(sent.body.message.id)!.deletedAt).toBeTypeOf('number');
   });
 });
+
+describe('gif attachments over REST', () => {
+  let token: string;
+  let roomId: number;
+
+  beforeAll(async () => {
+    token = (await registerUser(server, 'gif-rest')).token;
+    const created = await request(server, 'POST', '/api/rooms', {
+      token,
+      body: { name: 'gif rest room' },
+    });
+    roomId = created.body.room.id;
+  });
+
+  it('accepts an attachment with no body', async () => {
+    const res = await request(server, 'POST', `/api/rooms/${roomId}/messages`, {
+      token,
+      body: {
+        attachment: {
+          kind: 'gif',
+          url: 'https://media1.giphy.com/media/abc/giphy.gif',
+          width: 200,
+          height: 200,
+          alt: 'yes',
+        },
+      },
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.message.attachment.url).toBe('https://media1.giphy.com/media/abc/giphy.gif');
+  });
+
+  it('rejects a body-less message with no attachment', async () => {
+    const res = await request(server, 'POST', `/api/rooms/${roomId}/messages`, {
+      token,
+      body: {},
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('invalid_request');
+  });
+
+  it('rejects an attachment pointing off the allowlist', async () => {
+    const res = await request(server, 'POST', `/api/rooms/${roomId}/messages`, {
+      token,
+      body: {
+        attachment: { kind: 'gif', url: 'https://evil.example/x.gif', width: 1, height: 1 },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/Giphy/);
+  });
+
+  it('reports giphy as disabled when no API key is configured', async () => {
+    const res = await request(server, 'GET', '/api/giphy/status', { token });
+
+    expect(res.status).toBe(200);
+    expect(res.body.enabled).toBe(false);
+  });
+
+  it('404s a search when giphy is not configured', async () => {
+    const res = await request(server, 'GET', '/api/giphy/search?q=cat', { token });
+    expect(res.status).toBe(404);
+  });
+
+  it('requires authentication for giphy endpoints', async () => {
+    expect((await request(server, 'GET', '/api/giphy/status')).status).toBe(401);
+    expect((await request(server, 'GET', '/api/giphy/search?q=cat')).status).toBe(401);
+  });
+
+  it('sets an image CSP that permits giphy and nothing else', async () => {
+    const res = await fetch(`${server.baseUrl}/health`);
+    const csp = res.headers.get('content-security-policy') ?? '';
+
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain('https://media1.giphy.com');
+    expect(csp).not.toContain('img-src *');
+  });
+});

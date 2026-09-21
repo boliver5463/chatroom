@@ -112,7 +112,12 @@ const handlers: HandlerMap = {
   },
 
   'message.send': (ctx, conn, frame) => {
-    const result = ctx.messageService.send(conn.principal, frame.data.roomId, frame.data.body);
+    const result = ctx.messageService.send(
+      conn.principal,
+      frame.data.roomId,
+      frame.data.body,
+      frame.data.attachment,
+    );
 
     // A targeted mention reaches the author's recipients on every socket they
     // have open, even if none is currently viewing this room.

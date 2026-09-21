@@ -71,6 +71,21 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_revisions_message ON message_revisions (message_id, id DESC);
   `,
+
+  // 1 -> 2: inline attachments (Giphy GIFs)
+  `
+  -- Nullable columns rather than a side table: an attachment is 0-or-1 per
+  -- message and is always read with it, so a join would buy nothing.
+  --
+  -- The body column stays NOT NULL (dropping that constraint in SQLite means
+  -- rebuilding the table), so a GIF sent without a caption stores body = ''.
+  -- The "at least one of body/attachment" rule lives in MessageService.
+  ALTER TABLE messages ADD COLUMN attachment_kind   TEXT CHECK (attachment_kind IN ('gif'));
+  ALTER TABLE messages ADD COLUMN attachment_url    TEXT;
+  ALTER TABLE messages ADD COLUMN attachment_width  INTEGER;
+  ALTER TABLE messages ADD COLUMN attachment_height INTEGER;
+  ALTER TABLE messages ADD COLUMN attachment_alt    TEXT;
+  `,
 ];
 
 export function migrate(db: Database): void {

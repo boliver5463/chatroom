@@ -263,6 +263,22 @@
         color: var(--text-muted);
         font-style: italic;
       }
+      /* The wrapper carries the aspect ratio from the stored dimensions, so
+         the log does not jump around as GIFs decode. */
+      .msg .gif {
+        display: block;
+        margin-top: 4px;
+        max-width: min(320px, 100%);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #121211;
+        border: 1px solid var(--hairline);
+      }
+      .msg .gif img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
       .mention {
         background: rgba(57, 135, 229, 0.22);
         color: #cde2fb;
@@ -300,6 +316,66 @@
       .composer {
         border-top: 1px solid var(--hairline);
         padding: 12px 20px 16px;
+        position: relative;
+      }
+
+      /* ---------- GIF picker ---------- */
+      #gif-panel {
+        display: none;
+        position: absolute;
+        bottom: calc(100% - 6px);
+        right: 20px;
+        width: min(420px, calc(100% - 40px));
+        background: var(--surface-1);
+        border: 1px solid var(--hairline);
+        border-radius: 14px;
+        padding: 12px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+        z-index: 15;
+      }
+      #gif-panel.open {
+        display: block;
+      }
+      #gif-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: 10px;
+        min-height: 60px;
+      }
+      #gif-grid button {
+        padding: 0;
+        border-radius: 8px;
+        overflow: hidden;
+        aspect-ratio: 1;
+        background: #121211;
+        border: 1px solid var(--hairline);
+      }
+      #gif-grid img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      #gif-grid button:focus-visible {
+        outline: 2px solid var(--accent);
+      }
+      #gif-status {
+        color: var(--text-muted);
+        font-size: 12px;
+        padding: 14px 0;
+        text-align: center;
+      }
+      /* Giphy's API terms require visible attribution wherever results show. */
+      .gif-foot {
+        margin-top: 8px;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        text-align: right;
       }
       .composer .row {
         align-items: flex-end;
@@ -425,8 +501,15 @@
         <div id="typing"></div>
 
         <div class="composer">
+          <div id="gif-panel" aria-label="GIF picker">
+            <input id="gif-q" type="search" placeholder="Search GIFs…" autocomplete="off" />
+            <div id="gif-grid"></div>
+            <div id="gif-status"></div>
+            <div class="gif-foot">Powered by GIPHY</div>
+          </div>
           <div class="row">
             <textarea id="input" rows="1" placeholder="Message — @name to mention, Enter to send" disabled></textarea>
+            <button class="send" id="gif" disabled aria-expanded="false" title="Add a GIF">GIF</button>
             <button class="primary send" id="send" disabled>Send</button>
           </div>
         </div>
@@ -454,6 +537,8 @@
         pending: new Map(), // requestId -> {resolve, reject}
         seq: 0,
         retry: 0,
+        gifEnabled: false, // false until /api/giphy/status says the server has a key
+        gifSeq: 0, // discards out-of-order GIF search responses
       };
 
       /* ------------------------------------------------------------------ */
@@ -530,6 +615,30 @@
         return frag;
       }
 
+      /**
+       * The server allowlists the host before storing an attachment, so the
+       * url is safe as an <img src>. Width/height come from the same row and
+       * reserve the space before the image decodes.
+       */
+      function gifNode(attachment) {
+        const figure = document.createElement('div');
+        figure.className = 'gif';
+        if (attachment.width > 0 && attachment.height > 0) {
+          figure.style.aspectRatio = `${attachment.width} / ${attachment.height}`;
+          figure.style.width = `${attachment.width}px`;
+        }
+
+        const img = document.createElement('img');
+        img.src = attachment.url;
+        img.alt = attachment.alt || 'GIF';
+        img.loading = 'lazy';
+        // Scrolled-away history should not keep decoding frames.
+        img.decoding = 'async';
+
+        figure.append(img);
+        return figure;
+      }
+
       function messageNode(message) {
         const wrap = document.createElement('div');
         wrap.className = 'msg';
@@ -562,6 +671,10 @@
         else body.append(renderBody(message.body));
 
         wrap.append(head, body);
+        // A GIF sent without a caption has an empty body; skip the blank line.
+        if (!message.deletedAt && !message.body) body.remove();
+
+        if (!message.deletedAt && message.attachment) wrap.append(gifNode(message.attachment));
 
         // Author-only controls; the server enforces the same rule.
         if (!message.deletedAt && state.me && message.userId === state.me.id) {
@@ -700,6 +813,7 @@
           $('room-meta').textContent = `${ack.members.length} member(s) · ${ack.online.length} online`;
           $('input').disabled = false;
           $('send').disabled = false;
+          $('gif').disabled = !state.gifEnabled;
 
           renderRooms();
           renderLog();
@@ -731,29 +845,108 @@
       }
 
       function startEdit(message) {
-        const next = prompt('Edit message', message.body);
-        if (next === null || next.trim() === '' || next === message.body) return;
+        const next = prompt(message.attachment ? 'Edit caption' : 'Edit message', message.body);
+        if (next === null || next === message.body) return;
+        // An empty caption is allowed only when the GIF still carries the
+        // message; the server enforces the same rule.
+        if (next.trim() === '' && !message.attachment) return;
 
         call('message.edit', { messageId: message.id, body: next }).catch((err) =>
           toast(err.message, 'err'),
         );
       }
 
-      async function send() {
+      /** Sends the composer text, an attachment, or both. */
+      async function send(attachment = null) {
         const input = $('input');
         const body = input.value.trim();
-        if (!body || !state.activeRoomId) return;
+        if ((!body && !attachment) || !state.activeRoomId) return;
 
         input.value = '';
         input.style.height = 'auto';
 
         try {
-          await call('message.send', { roomId: state.activeRoomId, body });
+          await call('message.send', {
+            roomId: state.activeRoomId,
+            body,
+            ...(attachment ? { attachment } : {}),
+          });
         } catch (err) {
           // Put the text back so a rate-limited message is not lost.
           input.value = body;
           toast(err.message, 'err');
         }
+      }
+
+      /* ------------------------------------------------------------------ */
+      /* GIF picker                                                          */
+      /* ------------------------------------------------------------------ */
+
+      /** Results come back already allowlisted by the server-side proxy. */
+      function renderGifResults(gifs) {
+        const grid = $('gif-grid');
+        grid.replaceChildren();
+
+        for (const gif of gifs) {
+          const button = document.createElement('button');
+          button.title = gif.title || 'GIF';
+
+          const img = document.createElement('img');
+          img.src = gif.previewUrl;
+          img.alt = gif.title || 'GIF';
+          img.loading = 'lazy';
+          button.append(img);
+
+          button.onclick = () => {
+            closeGifPanel();
+            // Whatever is in the composer rides along as the caption.
+            send({
+              kind: 'gif',
+              url: gif.url,
+              width: gif.width,
+              height: gif.height,
+              alt: gif.title ?? '',
+            });
+          };
+          grid.append(button);
+        }
+
+        $('gif-status').textContent = gifs.length === 0 ? 'No GIFs found.' : '';
+      }
+
+      async function searchGifs(query) {
+        // Discard a slow response that a newer keystroke has superseded.
+        const token = ++state.gifSeq;
+        $('gif-status').textContent = 'Searching…';
+
+        try {
+          const result = await api(`/api/giphy/search?q=${encodeURIComponent(query)}`);
+          if (token !== state.gifSeq) return;
+          renderGifResults(result.gifs ?? []);
+        } catch (err) {
+          if (token !== state.gifSeq) return;
+          $('gif-grid').replaceChildren();
+          $('gif-status').textContent = err.message;
+        }
+      }
+
+      function closeGifPanel() {
+        $('gif-panel').classList.remove('open');
+        $('gif').setAttribute('aria-expanded', 'false');
+      }
+
+      function toggleGifPanel() {
+        const panel = $('gif-panel');
+        if (panel.classList.contains('open')) {
+          closeGifPanel();
+          return;
+        }
+
+        panel.classList.add('open');
+        $('gif').setAttribute('aria-expanded', 'true');
+        $('gif-q').focus();
+        // Open on trending so the grid is never empty.
+        searchGifs($('gif-q').value.trim());
       }
 
       function upsertMessage(message) {
@@ -790,6 +983,8 @@
           setConnected(false, 'disconnected');
           $('input').disabled = true;
           $('send').disabled = true;
+          $('gif').disabled = true;
+          closeGifPanel();
 
           // 4001 unauthorized / 4003 banned are terminal: the stored token
           // will never work again, so stop reconnecting and clear it.
@@ -869,6 +1064,8 @@
             if (target) {
               target.deletedAt = frame.data.deletedAt;
               target.body = '';
+              // Mirrors the server, which withholds both on read.
+              target.attachment = null;
               if (frame.data.roomId === state.activeRoomId) renderLog();
             }
             break;
@@ -877,7 +1074,12 @@
           case 'mention': {
             const message = frame.data.message;
             if (message.userId !== state.me?.id) {
-              toast(`@${message.username} mentioned you: ${message.body.slice(0, 80)}`, 'warn');
+              const preview = message.body
+                ? message.body.slice(0, 80)
+                : message.attachment
+                  ? '[GIF]'
+                  : '';
+              toast(`@${message.username} mentioned you: ${preview}`, 'warn');
             }
             break;
           }
@@ -930,10 +1132,27 @@
       /* ------------------------------------------------------------------ */
       /* Auth + wiring                                                       */
       /* ------------------------------------------------------------------ */
+      /**
+       * GIFs are optional: the server only enables them when it has a Giphy
+       * API key. Hide the button outright rather than offering a control that
+       * always errors.
+       */
+      async function probeGifSupport() {
+        try {
+          const { enabled } = await api('/api/giphy/status');
+          state.gifEnabled = enabled === true;
+        } catch {
+          state.gifEnabled = false;
+        }
+        $('gif').style.display = state.gifEnabled ? '' : 'none';
+        if (state.gifEnabled && state.activeRoomId) $('gif').disabled = false;
+      }
+
       function enterApp() {
         $('gate').style.display = 'none';
         $('app').classList.add('live');
         connect();
+        probeGifSupport();
       }
 
       function signOut() {
@@ -966,8 +1185,33 @@
       };
 
       $('logout').onclick = signOut;
-      $('send').onclick = send;
+      $('send').onclick = () => send();
       $('load-older').onclick = loadOlder;
+
+      $('gif').onclick = toggleGifPanel;
+
+      // One search per 300ms of quiet, not one per keystroke — each is an
+      // upstream API call against a per-user budget.
+      let gifDebounce;
+      $('gif-q').oninput = (e) => {
+        clearTimeout(gifDebounce);
+        const query = e.target.value.trim();
+        gifDebounce = setTimeout(() => searchGifs(query), 300);
+      };
+
+      $('gif-q').onkeydown = (e) => {
+        if (e.key === 'Escape') {
+          closeGifPanel();
+          $('input').focus();
+        }
+      };
+
+      // Click-away closes the panel, but not a click inside it.
+      document.addEventListener('click', (e) => {
+        if (!$('gif-panel').classList.contains('open')) return;
+        if (e.target.closest('#gif-panel') || e.target.closest('#gif')) return;
+        closeGifPanel();
+      });
 
       $('new-room').onclick = async () => {
         const name = prompt('Room name');

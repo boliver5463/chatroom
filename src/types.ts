@@ -34,6 +34,23 @@ export interface RoomMembership {
   joinedAt: number;
 }
 
+export type AttachmentKind = 'gif';
+
+/**
+ * A remote image rendered inline with (or instead of) the body. The URL is
+ * checked against a provider allowlist at write time, so what comes back out
+ * of the database is always safe to put in an <img src>.
+ */
+export interface MessageAttachment {
+  kind: AttachmentKind;
+  url: string;
+  /** Intrinsic size, used client-side to reserve space before the GIF loads. */
+  width: number;
+  height: number;
+  /** Alt text for screen readers; the provider's title, or '' if it had none. */
+  alt: string;
+}
+
 export interface Message {
   id: number;
   roomId: number;
@@ -45,6 +62,8 @@ export interface Message {
   deletedAt: number | null;
   /** Usernames resolved from @mentions at write time. */
   mentions: string[];
+  /** Null for a plain text message. */
+  attachment: MessageAttachment | null;
 }
 
 /** Domain error carrying a stable machine-readable code for clients. */

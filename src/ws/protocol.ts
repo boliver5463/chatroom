@@ -14,6 +14,28 @@ const requestId = z.string().min(1).max(64).optional();
 const roomId = z.number().int().positive();
 const messageId = z.number().int().positive();
 
+/**
+ * Shape-only validation. The host allowlist that actually makes a URL safe to
+ * render lives in lib/attachments.ts, so the REST and socket paths cannot
+ * drift apart.
+ */
+const attachment = z.object({
+  kind: z.literal('gif'),
+  url: z.string().max(2048),
+  width: z.number().int().positive().max(4096),
+  height: z.number().int().positive().max(4096),
+  alt: z.string().max(200).default(''),
+});
+
+/** A GIF may be sent with no caption, so `body` is no longer required. */
+const bodyOrAttachment = {
+  body: z.string().max(messageMaxLength).default(''),
+  attachment: attachment.nullish(),
+};
+
+const hasContent = (data: { body: string; attachment?: unknown }): boolean =>
+  data.body.trim().length > 0 || data.attachment != null;
+
 export const clientFrameSchema = z.discriminatedUnion('type', [
   z.object({ id: requestId, type: z.literal('ping') }),
 
@@ -44,16 +66,17 @@ export const clientFrameSchema = z.discriminatedUnion('type', [
   z.object({
     id: requestId,
     type: z.literal('message.send'),
-    data: z.object({
-      roomId,
-      body: z.string().min(1).max(messageMaxLength),
-    }),
+    data: z
+      .object({ roomId, ...bodyOrAttachment })
+      .refine(hasContent, { message: 'Provide a body, an attachment, or both' }),
   }),
 
   z.object({
     id: requestId,
+    // Edits the caption only; the attachment is immutable, so it is not
+    // accepted here.
     type: z.literal('message.edit'),
-    data: z.object({ messageId, body: z.string().min(1).max(messageMaxLength) }),
+    data: z.object({ messageId, body: z.string().max(messageMaxLength) }),
   }),
 
   z.object({

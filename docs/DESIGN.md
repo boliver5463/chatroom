@@ -29,7 +29,15 @@ messages (
   body       TEXT    NOT NULL,
   created_at INTEGER NOT NULL,                   -- epoch ms
   edited_at  INTEGER,                            -- NULL until edited
-  deleted_at INTEGER                             -- NULL until deleted (tombstone)
+  deleted_at INTEGER,                            -- NULL until deleted (tombstone)
+  -- All NULL for a plain text message. `body` stays NOT NULL, so a GIF sent
+  -- without a caption stores ''; the "body or attachment" rule is enforced in
+  -- MessageService rather than by a CHECK constraint.
+  attachment_kind   TEXT CHECK (attachment_kind IN ('gif')),
+  attachment_url    TEXT,
+  attachment_width  INTEGER,
+  attachment_height INTEGER,
+  attachment_alt    TEXT
 );
 CREATE INDEX idx_messages_room_id ON messages (room_id, id DESC);
 ```
@@ -89,6 +97,31 @@ The body is withheld at read time (`hydrate()` returns `''` when `deleted_at` is
 set), so deletion is *effective* even though the row survives. A separate
 retention job can hard-purge tombstones after the legal window — that is a
 deliberate, scheduled operation, not a side effect of a user tapping "delete."
+
+The same applies to attachments: `hydrate()` returns a null attachment for a
+tombstoned row. Withholding the body but leaving the image URL would make
+"delete" a no-op for the one kind of message where the image *is* the content.
+
+### Attachments are allowlisted, not just validated
+
+A GIF is stored as five nullable columns on `messages` rather than a side
+table — it is 0-or-1 per message and always read with it, so a join would buy
+nothing.
+
+The URL is checked against a host allowlist (`media*.giphy.com`, `i.giphy.com`,
+https only) at write time, in `lib/attachments.ts`, on the one code path both
+the REST and WebSocket senders funnel through. This is the part that matters.
+An arbitrary attacker-chosen URL rendered in an `<img>` is not a cosmetic
+problem: every member who opens the room silently issues a GET to it, which
+turns a message into an IP and user-agent harvester aimed at a private room.
+Checking the URL *parses* would not catch that; checking *who serves it* does.
+A `Content-Security-Policy` with a matching `img-src` backs this up in the
+browser, so a bad row that somehow got stored still would not load.
+
+Attachments are also immutable. Edits rewrite the caption only — letting
+someone swap the image under a message that people have already read and
+reacted to is a straightforward abuse vector, and the revision trail that
+covers edited *text* would not cover it.
 
 ### Edits keep an audit trail
 
@@ -221,13 +254,14 @@ which is the thing that actually stops a spammer.
 Buckets are computed lazily on access, so there is no timer per user and idle
 keys cost nothing until the periodic sweep collects them.
 
-Three separate limits, because they defend against different things:
+Four separate limits, because they defend against different things:
 
 | Limit | Key | Defends against |
 |---|---|---|
 | `messageRateLimit` (5 burst, 1/s) | user id | Chat spam |
 | `connectionRateLimit` (30 burst, 10/s) | socket id | Frame floods — checked **before** JSON parsing, so garbage cannot burn CPU |
 | `authRateLimit` (10, then 1/6s) | IP address | Credential brute force |
+| `giphyRateLimit` (15 burst, 1/s) | user id | Burning the Giphy API quota — each search is an upstream call someone else bills |
 
 Keying messages by **user** rather than by socket matters: keying by socket would
 let one account open five tabs and get five times the budget. There is a test for
@@ -248,6 +282,9 @@ Honest scope boundaries rather than silent gaps:
 - **No TLS.** Terminate at a reverse proxy; `trust proxy` is already set so the
   auth throttle sees real client IPs.
 - **No full-text search, threads, reactions, file uploads, or read receipts.**
+  GIFs are *linked*, not uploaded — the bytes stay on Giphy's CDN and the row
+  holds a URL. Accepting user uploads is a different problem (storage,
+  scanning, quotas, content-type sniffing) and is not in scope.
 - **`typing` is not persisted or rate-limited separately.** It is ephemeral and
   cheap, and the per-connection bucket already covers it. The client throttles to
   one frame per 2 s.

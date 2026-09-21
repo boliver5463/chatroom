@@ -20,8 +20,8 @@ Then open:
 
 | URL | What it is |
 |---|---|
-| <http://localhost:3000/index.html> | Chat client (register an account and start talking) |
-| <http://localhost:3000/admin.html> | Admin console — sign in as `admin` / `admin12345` |
+| <http://localhost:3000/> | Chat client (register an account and start talking) |
+| <http://localhost:3000/admin> | Admin console — sign in as `admin` / `admin12345` |
 
 On first boot the server creates the bootstrap admin and a public `#general`
 room. Open the client in two browser profiles to watch messages broadcast live.

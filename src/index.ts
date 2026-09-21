@@ -41,8 +41,8 @@ async function main(): Promise<void> {
   httpServer.listen(config.port, () => {
     console.log(`[boot] http    http://localhost:${config.port}`);
     console.log(`[boot] ws      ws://localhost:${config.port}/ws?token=<jwt>`);
-    console.log(`[boot] admin   http://localhost:${config.port}/admin.html`);
-    console.log(`[boot] client  http://localhost:${config.port}/index.html`);
+    console.log(`[boot] admin   http://localhost:${config.port}/admin`);
+    console.log(`[boot] client  http://localhost:${config.port}/`);
   });
 
   let shuttingDown = false;

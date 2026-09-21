@@ -38,8 +38,18 @@ export function createApp(ctx: AppContext): Express {
   app.use('/api/mentions', mentionRoutes(ctx));
   app.use('/api/admin', adminRoutes(ctx));
 
-  // Admin console and the demo chat client.
-  app.use(express.static(PUBLIC_DIR));
+  // Canonical page URLs. The redirects are registered before express.static so
+  // the underlying .html paths never resolve directly and each page has exactly
+  // one address.
+  app.get('/index.html', (_req, res) => res.redirect(301, '/'));
+  app.get('/admin.html', (_req, res) => res.redirect(301, '/admin'));
+
+  app.get('/', (_req, res) => res.sendFile(resolve(PUBLIC_DIR, 'index.html')));
+  app.get('/admin', (_req, res) => res.sendFile(resolve(PUBLIC_DIR, 'admin.html')));
+
+  // Any other asset dropped into public/. `index: false` leaves "/" to the
+  // explicit route above rather than having static serve index.html again.
+  app.use(express.static(PUBLIC_DIR, { index: false }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -244,10 +244,22 @@ async function main() {
   }
 
   // --- static assets ----------------------------------------------------
-  for (const path of ['/index.html', '/admin.html']) {
+  for (const path of ['/', '/admin']) {
     const res = await fetch(base + path);
     const html = await res.text();
     check(`serves ${path}`, res.status === 200 && html.includes('</html>'));
+  }
+
+  // The old .html addresses stay reachable, as permanent redirects.
+  for (const [from, to] of [
+    ['/index.html', '/'],
+    ['/admin.html', '/admin'],
+  ]) {
+    const res = await fetch(base + from, { redirect: 'manual' });
+    check(
+      `redirects ${from} -> ${to}`,
+      res.status === 301 && res.headers.get('location') === to,
+    );
   }
 
   aliceWs.close();

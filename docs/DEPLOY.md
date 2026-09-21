@@ -27,6 +27,18 @@ Install the CLI (PowerShell):
 iwr https://fly.io/install.ps1 -useb | iex
 ```
 
+On Windows the installer creates only `flyctl.exe` — unlike macOS/Linux, it does
+not add the short `fly` alias that every Fly doc uses. Either type `flyctl`
+throughout, or create the alias once:
+
+```powershell
+New-Item -ItemType HardLink -Path "$env:USERPROFILE\.fly\bin\fly.exe" `
+  -Target "$env:USERPROFILE\.fly\bin\flyctl.exe"
+```
+
+The installer adds `~\.fly\bin` to the persistent user PATH, but shells that
+were already open keep the old copy. Open a new terminal before continuing.
+
 Then authenticate:
 
 ```bash

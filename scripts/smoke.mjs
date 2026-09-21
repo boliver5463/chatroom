@@ -211,9 +211,14 @@ async function main() {
   }
 
   // --- admin ------------------------------------------------------------
+  // Defaults match a fresh dev install. Any real deployment sets its own, so
+  // override with ADMIN_USERNAME / ADMIN_PASSWORD when pointing at one.
   const adminLogin = await api('/api/auth/login', {
     method: 'POST',
-    body: { username: 'admin', password: 'admin12345' },
+    body: {
+      username: process.env.ADMIN_USERNAME ?? 'admin',
+      password: process.env.ADMIN_PASSWORD ?? 'admin12345',
+    },
   });
   check('bootstrap admin can log in', adminLogin.status === 200);
 
@@ -244,10 +249,22 @@ async function main() {
   }
 
   // --- static assets ----------------------------------------------------
-  for (const path of ['/index.html', '/admin.html']) {
+  for (const path of ['/', '/admin']) {
     const res = await fetch(base + path);
     const html = await res.text();
     check(`serves ${path}`, res.status === 200 && html.includes('</html>'));
+  }
+
+  // The old .html addresses stay reachable, as permanent redirects.
+  for (const [from, to] of [
+    ['/index.html', '/'],
+    ['/admin.html', '/admin'],
+  ]) {
+    const res = await fetch(base + from, { redirect: 'manual' });
+    check(
+      `redirects ${from} -> ${to}`,
+      res.status === 301 && res.headers.get('location') === to,
+    );
   }
 
   aliceWs.close();

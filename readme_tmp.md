@@ -48,7 +48,7 @@ Run it
 
 npm install && npm run dev
 
-localhost:3000/index.html (open two browser profiles to see live broadcast) ·
-/admin.html as admin / adm
+localhost:3000/ (open two browser profiles to see live broadcast) ·
+/admin as admin / adm
 
 I did not commit — say the I had no browserautomation available here, so the two frontend pages are verified by serving correctly and by the wire  fully exercised, not by me clicking through them.

@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { config } from '../config.js';
 import type { AppContext } from '../context.js';
 import { errorHandler, notFoundHandler } from './middleware.js';
 import { adminRoutes } from './routes/admin.js';
@@ -25,6 +26,12 @@ export function createApp(ctx: AppContext): Express {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
+    // Only meaningful once TLS terminates in front of us. Scoped to this exact
+    // host on purpose — no includeSubDomains, so deploying the chat subdomain
+    // can never force HTTPS onto the parent domain.
+    if (config.isProduction) {
+      res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+    }
     next();
   });
 
@@ -38,8 +45,18 @@ export function createApp(ctx: AppContext): Express {
   app.use('/api/mentions', mentionRoutes(ctx));
   app.use('/api/admin', adminRoutes(ctx));
 
-  // Admin console and the demo chat client.
-  app.use(express.static(PUBLIC_DIR));
+  // Canonical page URLs. The redirects are registered before express.static so
+  // the underlying .html paths never resolve directly and each page has exactly
+  // one address.
+  app.get('/index.html', (_req, res) => res.redirect(301, '/'));
+  app.get('/admin.html', (_req, res) => res.redirect(301, '/admin'));
+
+  app.get('/', (_req, res) => res.sendFile(resolve(PUBLIC_DIR, 'index.html')));
+  app.get('/admin', (_req, res) => res.sendFile(resolve(PUBLIC_DIR, 'admin.html')));
+
+  // Any other asset dropped into public/. `index: false` leaves "/" to the
+  // explicit route above rather than having static serve index.html again.
+  app.use(express.static(PUBLIC_DIR, { index: false }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

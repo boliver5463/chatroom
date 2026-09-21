@@ -1,50 +1,40 @@
-# syntax = docker/dockerfile:1
+# syntax=docker/dockerfile:1
 
-# Adjust NODE_VERSION as desired
-ARG NODE_VERSION=22.21.1
-FROM node:${NODE_VERSION}-slim AS base
-
-LABEL fly_launch_runtime="Node.js"
-
-# Node.js app lives here
+# ---- build -----------------------------------------------------------------
+# better-sqlite3 is a native addon. The slim image ships no toolchain, so the
+# build stage installs one; the runtime stage never carries it.
+FROM node:22-slim AS build
 WORKDIR /app
 
-# Set production environment
-ENV NODE_ENV="production"
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
 
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Throw-away build stage to reduce size of final image
-FROM base AS build
-
-# Install packages needed to build node modules
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential node-gyp pkg-config python-is-python3
-
-# Install node modules
-COPY package-lock.json package.json ./
-RUN npm ci --include=dev
-
-# Copy application code
-COPY . .
-
-# Build application
+COPY tsconfig.json ./
+COPY src ./src
 RUN npm run build
 
-# Remove development dependencies
+# Drop devDependencies. The compiled better-sqlite3 binding survives into the
+# runtime stage because both stages are the same base image and architecture.
 RUN npm prune --omit=dev
 
+# ---- runtime ---------------------------------------------------------------
+FROM node:22-slim AS runtime
+WORKDIR /app
 
-# Final stage for app image
-FROM base
+ENV NODE_ENV=production \
+    PORT=3000 \
+    DATABASE_PATH=/data/chat.sqlite
 
-# Copy built application
-COPY --from=build /app /app
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY package.json ./
+COPY public ./public
 
-# Setup sqlite3 on a separate volume
-RUN mkdir -p /data
-VOLUME /data
-
-# Start the server by default, this can be overwritten at runtime
 EXPOSE 3000
-ENV DATABASE_URL="file:///data/sqlite.db"
-CMD [ "npm", "run", "start" ]
+
+# Runs as root so it can write to the Fly volume, which mounts root-owned.
+CMD ["node", "dist/index.js"]

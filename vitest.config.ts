@@ -18,6 +18,11 @@ export default defineConfig({
       // brute-force default (10 then 1 per 6s) would correctly block it.
       AUTH_RATE_LIMIT_BURST: '10000',
       AUTH_RATE_LIMIT_REFILL_PER_SEC: '1000',
+      // Pinned empty so the suite does not depend on whether the developer
+      // happens to have a real key in .env, and so no test ever calls the
+      // live Giphy API. The response-mapping logic is covered directly by the
+      // `toResult` unit tests instead.
+      GIPHY_API_KEY: '',
     },
     testTimeout: 15_000,
     hookTimeout: 15_000,

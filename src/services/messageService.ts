@@ -2,9 +2,10 @@ import { config } from '../config.js';
 import type { HistoryPage, MessageRepository } from '../db/messages.js';
 import type { RoomRepository } from '../db/rooms.js';
 import type { UserRepository } from '../db/users.js';
+import { type AttachmentInput, parseAttachment } from '../lib/attachments.js';
 import { parseMentions } from '../lib/mentions.js';
 import type { TokenBucketRateLimiter } from '../lib/rateLimiter.js';
-import { type AuthPrincipal, type Message, errors } from '../types.js';
+import { type AuthPrincipal, type Message, type MessageAttachment, errors } from '../types.js';
 import type { RoomService } from './roomService.js';
 
 export interface SendResult {
@@ -42,11 +43,26 @@ export class MessageService {
     };
   }
 
-  send(principal: AuthPrincipal, roomId: number, rawBody: string): SendResult {
+  /**
+   * `rawBody` doubles as the caption when an attachment is present, so either
+   * one alone is a valid message — but not neither.
+   */
+  send(
+    principal: AuthPrincipal,
+    roomId: number,
+    rawBody: string,
+    attachmentInput?: AttachmentInput | null,
+  ): SendResult {
     this.roomService.requireMembership(principal, roomId);
 
     const body = rawBody.trim();
-    if (!body) throw errors.invalid('Message body cannot be empty');
+    // Validated before the rate limit is charged: a malformed attachment is a
+    // client bug, and shouldn't cost the user a token.
+    const attachment: MessageAttachment | null = attachmentInput
+      ? parseAttachment(attachmentInput)
+      : null;
+
+    if (!body && !attachment) throw errors.invalid('Message must have a body or an attachment');
     if (body.length > config.limits.messageMaxLength) {
       throw errors.invalid(`Message exceeds ${config.limits.messageMaxLength} characters`);
     }
@@ -71,6 +87,7 @@ export class MessageService {
       username: principal.username,
       body,
       mentionUserIds: userIds,
+      attachment,
     });
 
     // Re-read so the broadcast payload carries resolved mention usernames.
@@ -87,6 +104,10 @@ export class MessageService {
   /**
    * Only the author may edit. Moderators can delete, but rewriting someone
    * else's words under their name is a different and much worse power.
+   *
+   * An edit rewrites the caption only. The attachment is immutable: swapping
+   * the image under an existing message would let an innocuous post that
+   * people already reacted to turn into something else after the fact.
    */
   edit(principal: AuthPrincipal, messageId: number, rawBody: string): Message {
     const existing = this.messages.findById(messageId);
@@ -99,7 +120,12 @@ export class MessageService {
     this.roomService.requireMembership(principal, existing.roomId);
 
     const body = rawBody.trim();
-    if (!body) throw errors.invalid('Message body cannot be empty');
+    // Emptying the caption is fine when the GIF still carries the message;
+    // emptying a text-only message would leave nothing at all.
+    if (!body && !existing.attachment) throw errors.invalid('Message body cannot be empty');
+    if (body.length > config.limits.messageMaxLength) {
+      throw errors.invalid(`Message exceeds ${config.limits.messageMaxLength} characters`);
+    }
     if (body === existing.body) return existing;
 
     const { userIds } = this.resolveMentions(existing.roomId, body);

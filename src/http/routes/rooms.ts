@@ -22,8 +22,30 @@ const createRoomSchema = z.object({
   visibility: z.enum(['public', 'private']).default('public'),
 });
 
-const sendMessageSchema = z.object({
-  body: z.string().min(1).max(config.limits.messageMaxLength),
+/**
+ * Shape-only; lib/attachments.ts does the host allowlisting that matters, on
+ * the same code path the WebSocket handler uses.
+ */
+const sendMessageSchema = z
+  .object({
+    body: z.string().max(config.limits.messageMaxLength).default(''),
+    attachment: z
+      .object({
+        kind: z.literal('gif'),
+        url: z.string().max(2048),
+        width: z.number().int().positive().max(4096),
+        height: z.number().int().positive().max(4096),
+        alt: z.string().max(200).default(''),
+      })
+      .nullish(),
+  })
+  .refine((data) => data.body.trim().length > 0 || data.attachment != null, {
+    message: 'Provide a body, an attachment, or both',
+  });
+
+/** An edit rewrites the caption; the attachment is immutable. */
+const editMessageSchema = z.object({
+  body: z.string().max(config.limits.messageMaxLength),
 });
 
 const inviteSchema = z.object({
@@ -237,8 +259,13 @@ export function roomRoutes(ctx: AppContext): Router {
     '/:roomId/messages',
     validateBody(sendMessageSchema),
     asyncHandler(async (req, res) => {
-      const { body } = req.body as z.infer<typeof sendMessageSchema>;
-      const result = ctx.messageService.send(principalOf(req), intParam(req, 'roomId'), body);
+      const { body, attachment } = req.body as z.infer<typeof sendMessageSchema>;
+      const result = ctx.messageService.send(
+        principalOf(req),
+        intParam(req, 'roomId'),
+        body,
+        attachment,
+      );
 
       publishNewMessage(ctx, result);
       res.status(201).json({ message: result.message });
@@ -254,9 +281,9 @@ export function messageRoutes(ctx: AppContext): Router {
 
   router.patch(
     '/:messageId',
-    validateBody(sendMessageSchema),
+    validateBody(editMessageSchema),
     asyncHandler(async (req, res) => {
-      const { body } = req.body as z.infer<typeof sendMessageSchema>;
+      const { body } = req.body as z.infer<typeof editMessageSchema>;
       const message = ctx.messageService.edit(principalOf(req), intParam(req, 'messageId'), body);
 
       publishMessageEdited(ctx, message);

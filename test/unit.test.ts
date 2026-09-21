@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { hashPassword, verifyPassword } from '../src/auth/passwords.js';
 import { signAccessToken, verifyAccessToken, bearerFromHeader } from '../src/auth/tokens.js';
+import { isValidAttachment, parseAttachment } from '../src/lib/attachments.js';
+import { toResult } from '../src/http/routes/giphy.js';
 import { parseMentions } from '../src/lib/mentions.js';
 import { TokenBucketRateLimiter } from '../src/lib/rateLimiter.js';
 import { slugify } from '../src/db/rooms.js';
@@ -297,5 +299,135 @@ describe('message repository pagination', () => {
     expect(ctx.messages.findById(message.id)!.editedAt).toBeTypeOf('number');
 
     db.close();
+  });
+});
+
+describe('attachment validation', () => {
+  const valid = {
+    kind: 'gif',
+    url: 'https://media3.giphy.com/media/abc123/giphy.gif',
+    width: 480,
+    height: 270,
+    alt: 'a cat falling off a table',
+  };
+
+  it('accepts a well-formed Giphy attachment', () => {
+    expect(parseAttachment(valid)).toEqual(valid);
+  });
+
+  it('accepts every Giphy media shard and the i. host', () => {
+    for (const host of ['media.giphy.com', 'media0.giphy.com', 'media4.giphy.com', 'i.giphy.com']) {
+      expect(isValidAttachment({ ...valid, url: `https://${host}/media/x/giphy.gif` })).toBe(true);
+    }
+  });
+
+  it('rejects hosts outside the allowlist', () => {
+    for (const url of [
+      'https://evil.example/giphy.gif',
+      // Lookalikes: a suffix, a prefix, and a subdomain of an attacker domain.
+      'https://giphy.com.evil.example/x.gif',
+      'https://notgiphy.com/x.gif',
+      'https://media.giphy.com.evil.example/x.gif',
+      'https://giphy.com/x.gif',
+    ]) {
+      expect(isValidAttachment({ ...valid, url })).toBe(false);
+    }
+  });
+
+  it('rejects non-https schemes', () => {
+    expect(isValidAttachment({ ...valid, url: 'http://media.giphy.com/x.gif' })).toBe(false);
+    expect(isValidAttachment({ ...valid, url: 'javascript:alert(1)' })).toBe(false);
+    expect(isValidAttachment({ ...valid, url: 'data:image/gif;base64,R0lGOD' })).toBe(false);
+  });
+
+  it('rejects credentials smuggled into the authority', () => {
+    expect(
+      isValidAttachment({ ...valid, url: 'https://media.giphy.com@evil.example/x.gif' }),
+    ).toBe(false);
+  });
+
+  it('rejects unusable dimensions', () => {
+    expect(isValidAttachment({ ...valid, width: 0 })).toBe(false);
+    expect(isValidAttachment({ ...valid, height: -5 })).toBe(false);
+    expect(isValidAttachment({ ...valid, width: 99_999 })).toBe(false);
+    expect(isValidAttachment({ ...valid, width: 12.5 })).toBe(false);
+  });
+
+  it('rejects unknown kinds', () => {
+    expect(isValidAttachment({ ...valid, kind: 'video' })).toBe(false);
+    expect(isValidAttachment({ ...valid, kind: undefined })).toBe(false);
+  });
+
+  it('truncates overlong alt text and defaults it to empty', () => {
+    expect(parseAttachment({ ...valid, alt: 'x'.repeat(500) }).alt).toHaveLength(200);
+    expect(parseAttachment({ ...valid, alt: undefined }).alt).toBe('');
+  });
+});
+
+describe('giphy response mapping', () => {
+  /** Trimmed to the shape the messaging_non_clips bundle actually returns. */
+  const gif = {
+    id: 'abc123',
+    title: 'excited cat',
+    images: {
+      fixed_width: {
+        url: 'https://media3.giphy.com/media/abc123/200w.gif',
+        width: '200',
+        height: '150',
+      },
+      fixed_width_downsampled: {
+        url: 'https://media3.giphy.com/media/abc123/200w_d.gif',
+        width: '200',
+        height: '150',
+      },
+    },
+  };
+
+  it('maps a result to the picker shape', () => {
+    expect(toResult(gif)).toEqual({
+      id: 'abc123',
+      url: 'https://media3.giphy.com/media/abc123/200w.gif',
+      width: 200,
+      height: 150,
+      previewUrl: 'https://media3.giphy.com/media/abc123/200w_d.gif',
+      title: 'excited cat',
+    });
+  });
+
+  it('falls back through image variants when the preferred one is absent', () => {
+    const only = {
+      ...gif,
+      images: { original: { url: 'https://i.giphy.com/abc.gif', width: '48', height: '48' } },
+    };
+    const result = toResult(only)!;
+
+    expect(result.url).toBe('https://i.giphy.com/abc.gif');
+    // With no downsampled variant, the preview falls back to the full image.
+    expect(result.previewUrl).toBe(result.url);
+  });
+
+  it('drops results the attachment allowlist would reject on send', () => {
+    const offHost = {
+      ...gif,
+      images: { fixed_width: { url: 'https://cdn.evil.example/x.gif', width: '200', height: '150' } },
+    };
+    expect(toResult(offHost)).toBeNull();
+  });
+
+  it('drops results with no usable image or id', () => {
+    expect(toResult({ id: 'x', images: {} })).toBeNull();
+    expect(toResult({ images: gif.images })).toBeNull();
+  });
+
+  it('ignores a poisoned preview and falls back to the full image', () => {
+    const badPreview = {
+      ...gif,
+      images: {
+        ...gif.images,
+        fixed_width_downsampled: { url: 'https://evil.example/p.gif', width: '2', height: '2' },
+      },
+    };
+    const result = toResult(badPreview)!;
+    expect(result.previewUrl).toBe('https://media3.giphy.com/media/abc123/200w.gif');
   });
 });

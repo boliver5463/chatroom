@@ -95,6 +95,20 @@ loop rather than a silent insecure default.
 Changing `JWT_SECRET` later invalidates every issued token and logs everyone
 out. That is the correct lever if a key ever leaks.
 
+### Giphy (optional)
+
+GIFs stay switched off until the server has a key, so this is safe to skip and
+add later:
+
+```bash
+fly secrets set GIPHY_API_KEY='<your giphy key>' --app chatroom-brentonoliver
+```
+
+Set it as a secret, never in `fly.toml` `[env]` or `.env.example` — both are
+committed. The key is only ever used server-side; the browser calls
+`/api/giphy/*` and never talks to Giphy's API directly, so it is not exposed by
+the client bundle.
+
 ## 4. Deploy
 
 ```bash

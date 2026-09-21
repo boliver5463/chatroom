@@ -500,3 +500,127 @@ describe('administrative effects on live sockets', () => {
     expect(await closed).toBe(4003);
   });
 });
+
+describe('gif attachments', () => {
+  const gif = {
+    kind: 'gif' as const,
+    url: 'https://media2.giphy.com/media/xyz/giphy.gif',
+    width: 480,
+    height: 270,
+    alt: 'shrug',
+  };
+
+  /** Adds a second connected member to `roomId` and returns their client. */
+  async function addMember(roomId: number, ownerToken: string, username: string) {
+    const member = await registerUser(server, username);
+    const invited = await request(server, 'POST', `/api/rooms/${roomId}/members`, {
+      token: ownerToken,
+      body: { username },
+    });
+    expect(invited.status).toBe(201);
+
+    const client = await TestClient.connect(server, member.token);
+    await client.send('room.join', { roomId });
+    return { client, user: member.user };
+  }
+
+  it('broadcasts a caption-less GIF to the other members of the room', async () => {
+    const { roomId, client, token } = await setupRoom('gif-solo');
+    const { client: observer } = await addMember(roomId, token, 'gif-watcher');
+
+    const ack = await client.send('message.send', { roomId, attachment: gif });
+    expect(ack.message.body).toBe('');
+    expect(ack.message.attachment).toEqual(gif);
+
+    const frame = await observer.waitFor(
+      (f) => f.type === 'message.new' && f.data.message.id === ack.message.id,
+    );
+    expect(frame.data.message.attachment).toEqual(gif);
+    expect(frame.data.message.body).toBe('');
+
+    client.close();
+    observer.close();
+  });
+
+  it('resolves @mentions in the caption of a GIF', async () => {
+    const { roomId, client, token } = await setupRoom('gif-caption');
+    const { client: friend } = await addMember(roomId, token, 'gif-friend');
+
+    const ack = await client.send('message.send', {
+      roomId,
+      body: 'look @gif-friend',
+      attachment: gif,
+    });
+
+    expect(ack.message.body).toBe('look @gif-friend');
+    expect(ack.message.mentions).toContain('gif-friend');
+    expect(ack.message.attachment.url).toBe(gif.url);
+
+    // The mention inbox must reach them even though the payload is a GIF.
+    const mention = await friend.waitFor((f) => f.type === 'mention');
+    expect(mention.data.message.attachment).toEqual(gif);
+
+    client.close();
+    friend.close();
+  });
+
+  it('rejects a message with neither body nor attachment', async () => {
+    const { roomId, client } = await setupRoom('gif-empty');
+    await expect(client.send('message.send', { roomId })).rejects.toThrow();
+    client.close();
+  });
+
+  it('rejects an attachment on a host outside the allowlist', async () => {
+    const { roomId, client } = await setupRoom('gif-evil');
+
+    await expect(
+      client.send('message.send', {
+        roomId,
+        attachment: { ...gif, url: 'https://evil.example/tracker.gif' },
+      }),
+    ).rejects.toThrow(/Giphy/);
+
+    client.close();
+  });
+
+  it('withholds the attachment once the message is deleted', async () => {
+    const { roomId, client } = await setupRoom('gif-deleted');
+    const ack = await client.send('message.send', { roomId, attachment: gif });
+
+    await client.send('message.delete', { messageId: ack.message.id });
+    const page = await client.send('history.fetch', { roomId, limit: 50 });
+    const found = page.messages.find((m: any) => m.id === ack.message.id);
+
+    expect(found.attachment).toBeNull();
+    expect(found.body).toBe('');
+    client.close();
+  });
+
+  it('survives a round trip through history', async () => {
+    const { roomId, client } = await setupRoom('gif-history');
+    await client.send('message.send', { roomId, body: 'caption', attachment: gif });
+
+    const page = await client.send('history.fetch', { roomId, limit: 50 });
+    const found = page.messages.find((m: any) => m.attachment !== null);
+
+    expect(found.attachment).toEqual(gif);
+    client.close();
+  });
+
+  it('allows clearing the caption of a GIF but not of a text message', async () => {
+    const { roomId, client } = await setupRoom('gif-edit');
+
+    const withGif = await client.send('message.send', { roomId, body: 'oops', attachment: gif });
+    const cleared = await client.send('message.edit', { messageId: withGif.message.id, body: '' });
+    expect(cleared.message.body).toBe('');
+    // The attachment is immutable and must survive the caption edit.
+    expect(cleared.message.attachment).toEqual(gif);
+
+    const textOnly = await client.send('message.send', { roomId, body: 'just words' });
+    await expect(
+      client.send('message.edit', { messageId: textOnly.message.id, body: '' }),
+    ).rejects.toThrow(/cannot be empty/i);
+
+    client.close();
+  });
+});

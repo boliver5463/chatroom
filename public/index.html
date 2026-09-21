@@ -408,7 +408,6 @@
         <div class="rooms" id="room-list"></div>
         <div class="aside-foot">
           <button id="new-room">+ New room</button>
-          <button id="show-mentions">@ My mentions</button>
           <button id="logout">Sign out</button>
         </div>
       </aside>
@@ -980,21 +979,6 @@
           state.rooms.set(ack.room.id, { ...ack.room, memberCount: 1, myRole: 'owner' });
           renderRooms();
           openRoom(ack.room.id);
-        } catch (err) {
-          toast(err.message, 'err');
-        }
-      };
-
-      $('show-mentions').onclick = async () => {
-        try {
-          const page = await call('mentions.fetch', { limit: 20 });
-          if (page.messages.length === 0) {
-            toast('No mentions yet.');
-            return;
-          }
-          for (const message of page.messages.slice(-5).reverse()) {
-            toast(`#${state.rooms.get(message.roomId)?.name ?? message.roomId} — ${message.username}: ${message.body.slice(0, 60)}`);
-          }
         } catch (err) {
           toast(err.message, 'err');
         }

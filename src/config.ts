@@ -71,7 +71,7 @@ export const config = {
   /** Token bucket applied per user to `message.send`. */
   messageRateLimit: {
     burst: num('RATE_LIMIT_BURST', 5),
-    refillPerSecond: num('RATE_LIMIT_REFILL_PER_SEC', 1),
+    refillPerSecond: num('RATE_LIMIT_REFILL_PER_SEC', 3),
   },
 
   /**

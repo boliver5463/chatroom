@@ -29,12 +29,22 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATABASE_PATH=/data/chat.sqlite
 
+# Litestream ships a single static binary; lift it out of the official image
+# rather than adding curl/tar to the runtime stage. Pinned deliberately — an
+# unpinned replicator is a bad thing to have silently change under you.
+COPY --from=litestream/litestream:0.3.13 /usr/local/bin/litestream /usr/local/bin/litestream
+
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 COPY public ./public
+COPY litestream.yml /etc/litestream.yml
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 
 # Runs as root so it can write to the Fly volume, which mounts root-owned.
-CMD ["node", "dist/index.js"]
+# The entrypoint restores from the replica if the volume is empty, then execs
+# the app under `litestream replicate`. With no BUCKET_NAME it just runs node.
+CMD ["/usr/local/bin/docker-entrypoint.sh"]

@@ -1,0 +1,29 @@
+# Litestream: continuous replication of the SQLite WAL to object storage.
+#
+# This is the disaster-recovery layer. The Fly volume already survives machine
+# restarts and deploys; what it does not survive is losing the volume itself,
+# since a Fly volume lives on a single host and is not replicated. Litestream
+# closes that gap — worst-case data loss drops from "everything since the last
+# daily snapshot" to roughly `sync-interval`.
+#
+# Credentials are read from the environment. `fly storage create` provisions a
+# Tigris bucket and sets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+# AWS_ENDPOINT_URL_S3 and BUCKET_NAME as secrets, which is everything below.
+
+dbs:
+  - path: /data/chat.sqlite
+    replicas:
+      - type: s3
+        bucket: ${BUCKET_NAME}
+        path: chat.sqlite
+        endpoint: ${AWS_ENDPOINT_URL_S3}
+        # Tigris is globally distributed and ignores the region, but the S3
+        # client requires the field to be set.
+        region: auto
+        # How often changed WAL pages are shipped. This is the upper bound on
+        # data lost if the host disappears between syncs.
+        sync-interval: 1s
+        # Keep a day of granular history, so a bad write can be rewound to a
+        # point in time rather than only to the last full snapshot.
+        retention: 24h
+        snapshot-interval: 6h

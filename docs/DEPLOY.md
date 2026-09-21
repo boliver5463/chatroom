@@ -48,10 +48,10 @@ fly auth login
 ## 1. Create the app
 
 The app name is the global Fly namespace, so it must be unique. `fly.toml` uses
-`brentonoliver-chatroom`; change it there if you want something else.
+`chatroom-brentonoliver`; change it there if you want something else.
 
 ```bash
-fly apps create brentonoliver-chatroom
+fly apps create chatroom-brentonoliver
 ```
 
 Do **not** run `fly launch` — it regenerates `fly.toml` and will discard the
@@ -60,7 +60,7 @@ single-machine and volume settings already committed here.
 ## 2. Create the volume
 
 ```bash
-fly volumes create chatroom_data --region iad --size 1 --app brentonoliver-chatroom
+fly volumes create chatroom_data --region syd --size 1 --app chatroom-brentonoliver
 ```
 
 ## 3. Set secrets — BEFORE the first deploy
@@ -85,7 +85,7 @@ fly secrets set \
   JWT_SECRET='<paste the generated key>' \
   ADMIN_USERNAME='brent' \
   ADMIN_PASSWORD='<a real password>' \
-  --app brentonoliver-chatroom
+  --app chatroom-brentonoliver
 ```
 
 `JWT_SECRET` is mandatory: `src/config.ts:49` throws on boot when
@@ -98,7 +98,7 @@ out. That is the correct lever if a key ever leaks.
 ## 4. Deploy
 
 ```bash
-fly deploy --app brentonoliver-chatroom
+fly deploy --app chatroom-brentonoliver
 ```
 
 Docker is not required locally — Fly builds remotely. To build on your own
@@ -107,9 +107,9 @@ machine instead, start Docker Desktop and add `--local-only`.
 Confirm it came up:
 
 ```bash
-fly status --app brentonoliver-chatroom
-fly logs --app brentonoliver-chatroom
-curl https://brentonoliver-chatroom.fly.dev/health
+fly status --app chatroom-brentonoliver
+fly logs --app chatroom-brentonoliver
+curl https://chatroom-brentonoliver.fly.dev/health
 ```
 
 Expect `{"ok":true,...}` and a `[boot] created bootstrap admin` line in the
@@ -120,14 +120,14 @@ logs on the very first deploy only.
 Request the certificate first — Fly prints the exact DNS records it wants:
 
 ```bash
-fly certs add chatroom.brentonoliver.com --app brentonoliver-chatroom
+fly certs add chatroom.brentonoliver.com --app chatroom-brentonoliver
 ```
 
 Then add this record at whatever manages DNS for `brentonoliver.com`:
 
 | Type | Name | Value |
 |---|---|---|
-| CNAME | `chatroom` | `brentonoliver-chatroom.fly.dev` |
+| CNAME | `chatroom` | `chatroom-brentonoliver.fly.dev` |
 
 A CNAME covers both IPv4 and IPv6 and survives Fly changing its IPs, which is
 why it beats A/AAAA records here.
@@ -135,12 +135,35 @@ why it beats A/AAAA records here.
 Watch for issuance (usually under a minute, occasionally longer):
 
 ```bash
-fly certs show chatroom.brentonoliver.com --app brentonoliver-chatroom
+fly certs show chatroom.brentonoliver.com --app chatroom-brentonoliver
 ```
 
 ### If DNS is on Cloudflare
 
 Set the record to **DNS only** (grey cloud), not proxied.
+
+Proxied is the default for new records and it breaks issuance in a way that
+looks like two separate problems:
+
+- `fly certs show` stays at `Not verified` with *"DNS records do not match the
+  expected values"* — the hostname resolves to Cloudflare's anycast IPs
+  (`104.21.x.x`, `172.67.x.x`), not Fly's, so Fly's check never passes.
+- The site returns **HTTP 525** (SSL handshake failed). Cloudflare is
+  terminating TLS at the edge and trying to reach the origin over HTTPS, but
+  Fly has no certificate for the hostname yet — which is exactly what the
+  first bullet is blocking.
+
+Flipping to grey cloud resolves both. Then force a recheck rather than waiting:
+
+```bash
+fly certs check chatroom.brentonoliver.com --app chatroom-brentonoliver
+```
+
+If you do want Cloudflare in front later, the orange cloud needs three records
+(`CNAME chatroom` proxied, `CNAME _acme-challenge.chatroom` → the `flydns.net`
+target as DNS only, and `TXT _fly-ownership.chatroom`) plus the zone's SSL/TLS
+mode set to **Full (strict)**. Anything less than Full (strict) loops against
+`force_https = true` in `fly.toml`.
 
 The orange-cloud proxy puts a second hop in front of Fly's proxy, and
 `app.set('trust proxy', 1)` (`src/http/app.ts:19`) trusts exactly one. With two
@@ -182,8 +205,8 @@ between them — that is the one thing no curl check covers.
 ### Logs and shell
 
 ```bash
-fly logs --app brentonoliver-chatroom
-fly ssh console --app brentonoliver-chatroom
+fly logs --app chatroom-brentonoliver
+fly ssh console --app chatroom-brentonoliver
 ```
 
 ### Backups
@@ -196,12 +219,12 @@ For a consistent copy, use SQLite's own backup API, which is safe against a
 running writer:
 
 ```bash
-fly ssh console --app brentonoliver-chatroom
+fly ssh console --app chatroom-brentonoliver
 apt-get update && apt-get install -y sqlite3
 sqlite3 /data/chat.sqlite ".backup '/data/backup.sqlite'"
 exit
 
-fly ssh sftp get /data/backup.sqlite ./chat-backup.sqlite --app brentonoliver-chatroom
+fly ssh sftp get /data/backup.sqlite ./chat-backup.sqlite --app chatroom-brentonoliver
 ```
 
 Worth automating off-machine before this holds anything you would miss.
@@ -215,7 +238,7 @@ a `SERVER_SHUTDOWN` close code (`src/index.ts:57`) and reconnect with backoff.
 ### Restarting
 
 ```bash
-fly apps restart brentonoliver-chatroom
+fly apps restart chatroom-brentonoliver
 ```
 
 ### Things that will break it

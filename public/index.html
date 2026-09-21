@@ -141,6 +141,10 @@
       .aside-head {
         padding: 14px 16px;
         border-bottom: 1px solid var(--hairline);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
       }
       .aside-head .me {
         font-weight: 600;
@@ -228,6 +232,20 @@
         flex-direction: column;
         gap: 2px;
       }
+      /* Sits at the top of the scroller and reports what automatic paging is
+         doing. Hidden when there is nothing to say, so it costs no height. */
+      #history-status {
+        display: none;
+        flex: none;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 12px;
+        padding: 8px 0;
+      }
+      #history-status.show {
+        display: block;
+      }
+
       .msg {
         padding: 5px 10px;
         border-radius: 8px;
@@ -388,11 +406,31 @@
       .composer .send {
         flex: 0 0 auto;
       }
+      @media (max-width: 720px) {
+        .composer .row {
+          flex-wrap: wrap;
+        }
+        .composer textarea {
+          font-size: 12px;
+          min-width: 100%;
+          max-width: 100%;
+        }
+        .composer .send {
+          flex: 0.5;
+        }
+      }
       #typing {
         height: 16px;
         font-size: 11px;
         color: var(--text-muted);
         padding: 0 20px;
+        background-color: #333333;
+      }
+      /* `textContent = ''` clears the child nodes outright rather than leaving
+         an empty text node, so the strip is genuinely :empty between bursts of
+         typing and can collapse instead of holding a permanent 16px gap. */
+      #typing:empty {
+        display: none;
       }
 
       .toast {
@@ -449,6 +487,112 @@
         flex: 1;
         color: var(--text-muted);
       }
+
+      /* ---------- Room drawer ---------- */
+      /* The arrows only mean anything once the sidebar can slide, so they stay
+         hidden until the mobile breakpoint turns them on. */
+      .icon-btn {
+        display: none;
+        flex: none;
+        padding: 4px 11px;
+        font-size: 18px;
+        line-height: 1.2;
+        color: var(--text-secondary);
+      }
+      .head-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .aside-head-text {
+        min-width: 0;
+      }
+
+      /* Kept out of the flow with visibility rather than `display` so the fade
+         has two states to animate between. */
+      #scrim {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        z-index: 20;
+        opacity: 0;
+        visibility: hidden;
+        transition:
+          opacity 0.24s ease,
+          visibility 0.24s;
+      }
+
+      @media (max-width: 720px) {
+        /* Dynamic viewport units: the composer stays reachable when a mobile
+           browser's toolbars slide away and `100%` would overshoot. */
+        html,
+        body {
+          height: 100dvh;
+        }
+
+        /* One column — the sidebar leaves the grid and floats above `main`. */
+        #app {
+          grid-template-columns: 1fr;
+        }
+        aside {
+          position: fixed;
+          inset: 0 auto 0 0;
+          width: min(290px, 82vw);
+          z-index: 25;
+          transform: translateX(-100%);
+          transition: transform 0.24s ease;
+          box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+        }
+        #app.drawer-open aside {
+          transform: translateX(0);
+        }
+        #app.drawer-open #scrim {
+          opacity: 1;
+          visibility: visible;
+        }
+
+        .icon-btn {
+          display: block;
+        }
+
+        header.room-head {
+          padding: 10px 14px;
+        }
+        #log {
+          padding: 12px 14px;
+        }
+        .composer {
+          padding: 10px 14px 12px;
+        }
+        #gif-panel {
+          right: 14px;
+          width: calc(100% - 28px);
+        }
+
+        /* iOS zooms the page in when a focused control is under 16px. */
+        input,
+        select,
+        textarea {
+          font-size: 16px;
+        }
+      }
+
+      /* Touch has no hover, so the per-message actions would be unreachable. */
+      @media (hover: none) {
+        .msg .actions {
+          display: flex;
+          position: static;
+          margin-top: 4px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        aside,
+        #scrim {
+          transition: none;
+        }
+      }
     </style>
   </head>
 
@@ -476,10 +620,15 @@
 
     <!-- App -->
     <div id="app">
-      <aside>
+      <div id="scrim"></div>
+
+      <aside id="drawer">
         <div class="aside-head">
-          <div class="me" id="me-name">—</div>
-          <div class="role"><span class="status"><span class="dot" id="conn-dot"></span><span id="conn-text">connecting</span></span></div>
+          <div class="aside-head-text">
+            <div class="me" id="me-name">—</div>
+            <div class="role"><span class="status"><span class="dot" id="conn-dot"></span><span id="conn-text">connecting</span></span></div>
+          </div>
+          <button class="icon-btn" id="drawer-close" aria-label="Hide rooms">‹</button>
         </div>
         <div class="rooms" id="room-list"></div>
         <div class="aside-foot">
@@ -490,14 +639,19 @@
 
       <main>
         <header class="room-head">
-          <div>
-            <h2 id="room-title">Pick a room</h2>
-            <div class="meta" id="room-meta"></div>
+          <div class="head-left">
+            <button class="icon-btn" id="drawer-toggle" aria-label="Show rooms" aria-controls="drawer" aria-expanded="false">›</button>
+            <div>
+              <h2 id="room-title">Pick a room</h2>
+              <div class="meta" id="room-meta"></div>
+            </div>
           </div>
-          <button id="load-older" style="display: none">Load older</button>
         </header>
 
-        <div id="log"><div class="center">Select a room from the left.</div></div>
+        <div id="log">
+          <div id="history-status" role="status" aria-live="polite"></div>
+          <div class="center">Select a room from the left.</div>
+        </div>
         <div id="typing"></div>
 
         <div class="composer">
@@ -532,6 +686,7 @@
         activeRoomId: null,
         messages: new Map(), // roomId -> array (oldest first)
         cursors: new Map(), // roomId -> { hasMore, nextCursor }
+        loadingOlder: false, // in-flight guard for scroll-triggered paging
         unread: new Map(), // roomId -> count
         typing: new Map(), // roomId -> Map(userId -> {username, expires})
         pending: new Map(), // requestId -> {resolve, reject}
@@ -702,10 +857,35 @@
         return wrap;
       }
 
-      function renderLog() {
+      // `hasMore` is tracked per room, so this always reflects the active one.
+      function updateHistoryStatus() {
+        const status = $('history-status');
+        const roomId = state.activeRoomId;
+        const cursor = state.cursors.get(roomId);
+        const hasMessages = (state.messages.get(roomId) ?? []).length > 0;
+
+        const text = state.loadingOlder
+          ? 'Loading older messages…'
+          : roomId && hasMessages && cursor && !cursor.hasMore
+            ? 'Beginning of the conversation'
+            : '';
+
+        status.textContent = text;
+        status.classList.toggle('show', text !== '');
+      }
+
+      function renderLog({ keepPosition = false } = {}) {
         const log = $('log');
         const roomId = state.activeRoomId;
-        log.replaceChildren();
+
+        // Anchor measurements have to be taken before the DOM is swapped.
+        const prevHeight = log.scrollHeight;
+        const prevTop = log.scrollTop;
+
+        // Passing the status node back in keeps it across the swap; everything
+        // else in the scroller is rebuilt from state.
+        log.replaceChildren($('history-status'));
+        updateHistoryStatus();
 
         if (!roomId) {
           const empty = document.createElement('div');
@@ -739,9 +919,9 @@
           log.append(messageNode(message));
         }
 
-        const cursor = state.cursors.get(roomId);
-        $('load-older').style.display = cursor?.hasMore ? 'block' : 'none';
-        log.scrollTop = log.scrollHeight;
+        // Prepended history must not shift text under the reader's eyes, so
+        // hold the previous position by the amount the content grew.
+        log.scrollTop = keepPosition ? log.scrollHeight - prevHeight + prevTop : log.scrollHeight;
       }
 
       function renderRooms() {
@@ -817,6 +997,9 @@
 
           renderRooms();
           renderLog();
+          // Picking a room is the drawer's whole purpose on a phone; leaving it
+          // covering the messages afterwards would mean two taps every time.
+          setDrawer(false);
         } catch (err) {
           toast(err.message, 'err');
         }
@@ -825,22 +1008,31 @@
       async function loadOlder() {
         const roomId = state.activeRoomId;
         const cursor = state.cursors.get(roomId);
-        if (!cursor?.hasMore) return;
+        // The scroll handler fires continuously while the reader sits at the
+        // top, so the in-flight guard is what stops a burst of duplicate pages.
+        if (!cursor?.hasMore || state.loadingOlder) return;
+
+        state.loadingOlder = true;
+        updateHistoryStatus();
 
         try {
           const page = await call('history.fetch', { roomId, before: cursor.nextCursor, limit: 50 });
-          const existing = state.messages.get(roomId) ?? [];
 
+          // Rooms can be switched while a page is in flight; merging it into
+          // whatever is open now would interleave two conversations.
+          if (state.activeRoomId !== roomId) return;
+
+          const existing = state.messages.get(roomId) ?? [];
           state.messages.set(roomId, [...page.messages, ...existing]);
           state.cursors.set(roomId, { hasMore: page.hasMore, nextCursor: page.nextCursor });
 
-          // Keep the reading position instead of snapping to the bottom.
-          const log = $('log');
-          const before = log.scrollHeight;
-          renderLog();
-          log.scrollTop = log.scrollHeight - before;
+          state.loadingOlder = false;
+          renderLog({ keepPosition: true });
         } catch (err) {
           toast(err.message, 'err');
+        } finally {
+          state.loadingOlder = false;
+          updateHistoryStatus();
         }
       }
 
@@ -1186,7 +1378,14 @@
 
       $('logout').onclick = signOut;
       $('send').onclick = () => send();
-      $('load-older').onclick = loadOlder;
+
+      // Automatic paging, in place of the old "Load older" button: nearing the
+      // top of the scroller pulls the next page. The trigger sits above the
+      // very top so the history is already arriving by the time you get there.
+      const HISTORY_TRIGGER_PX = 120;
+      $('log').addEventListener('scroll', () => {
+        if ($('log').scrollTop <= HISTORY_TRIGGER_PX) loadOlder();
+      });
 
       $('gif').onclick = toggleGifPanel;
 
@@ -1211,6 +1410,32 @@
         if (!$('gif-panel').classList.contains('open')) return;
         if (e.target.closest('#gif-panel') || e.target.closest('#gif')) return;
         closeGifPanel();
+      });
+
+      /* ------------------------------------------------------------------ */
+      /* Room drawer (mobile)                                                */
+      /* ------------------------------------------------------------------ */
+      // Above the breakpoint the sidebar is pinned by the grid and none of
+      // this runs — `drawer-open` only has styling attached inside the query.
+      const wideScreen = window.matchMedia('(min-width: 721px)');
+
+      function setDrawer(open) {
+        $('app').classList.toggle('drawer-open', open);
+        $('drawer-toggle').setAttribute('aria-expanded', String(open));
+      }
+
+      $('drawer-toggle').onclick = () => setDrawer(!$('app').classList.contains('drawer-open'));
+      $('drawer-close').onclick = () => setDrawer(false);
+      $('scrim').onclick = () => setDrawer(false);
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') setDrawer(false);
+      });
+
+      // Rotating to landscape mid-slide would otherwise strand the class, and
+      // with it a scrim the desktop layout has no way to dismiss.
+      wideScreen.addEventListener('change', (e) => {
+        if (e.matches) setDrawer(false);
       });
 
       $('new-room').onclick = async () => {

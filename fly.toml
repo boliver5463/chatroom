@@ -1,0 +1,61 @@
+# Fly.io configuration.
+#
+# This app is deliberately pinned to a SINGLE machine. The WebSocket hub
+# (src/ws/hub.ts) holds connections and room membership in process memory, and
+# SQLite holds state in one file on one volume. A second machine would mean
+# users who cannot see each other's messages and a database that only half the
+# traffic can reach.
+
+app = 'brentonoliver-chatroom'
+primary_region = 'iad'
+
+# The server closes sockets with a shutdown code and drains on SIGTERM
+# (src/index.ts:49), with its own 10s backstop. Give it room to finish.
+kill_signal = 'SIGTERM'
+kill_timeout = '15s'
+
+[build]
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '3000'
+  DATABASE_PATH = '/data/chat.sqlite'
+
+# Persistent disk for the SQLite file plus its -wal and -shm sidecars.
+[[mounts]]
+  source = 'chatroom_data'
+  destination = '/data'
+  initial_size = '1gb'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Never suspend: a stopped machine drops every live WebSocket.
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  # Long-lived WebSockets, so count connections rather than requests. These are
+  # set high on purpose: with one machine there is nowhere to shed load to, and
+  # a low limit would just return 503s.
+  [http_service.concurrency]
+    type = 'connections'
+    soft_limit = 400
+    hard_limit = 500
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+
+# One machine cannot roll over itself while holding the only volume, so deploys
+# replace it directly. Expect a few seconds of downtime per deploy.
+[deploy]
+  strategy = 'immediate'

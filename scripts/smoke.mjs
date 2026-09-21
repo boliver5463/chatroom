@@ -211,9 +211,14 @@ async function main() {
   }
 
   // --- admin ------------------------------------------------------------
+  // Defaults match a fresh dev install. Any real deployment sets its own, so
+  // override with ADMIN_USERNAME / ADMIN_PASSWORD when pointing at one.
   const adminLogin = await api('/api/auth/login', {
     method: 'POST',
-    body: { username: 'admin', password: 'admin12345' },
+    body: {
+      username: process.env.ADMIN_USERNAME ?? 'admin',
+      password: process.env.ADMIN_PASSWORD ?? 'admin12345',
+    },
   });
   check('bootstrap admin can log in', adminLogin.status === 200);
 

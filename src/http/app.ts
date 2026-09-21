@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { config } from '../config.js';
 import type { AppContext } from '../context.js';
 import { errorHandler, notFoundHandler } from './middleware.js';
 import { adminRoutes } from './routes/admin.js';
@@ -25,6 +26,12 @@ export function createApp(ctx: AppContext): Express {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
+    // Only meaningful once TLS terminates in front of us. Scoped to this exact
+    // host on purpose — no includeSubDomains, so deploying the chat subdomain
+    // can never force HTTPS onto the parent domain.
+    if (config.isProduction) {
+      res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+    }
     next();
   });
 
